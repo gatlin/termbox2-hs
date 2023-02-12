@@ -5,4 +5,4 @@ This is a work in progress!
 
 ![a screenshot of the test program](/screenshot.png)
 
-[Documentation.](//gatlin.github.io/termbox2-hs).
+[Documentation.](//gatlin.github.io/termbox2-hs)
