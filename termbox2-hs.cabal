@@ -1,0 +1,57 @@
+cabal-version:      3.0
+description:
+  [termbox2](https://github.com/termbox/termbox2) is a simple terminal
+  rendering library with a small surface area and no dependencies.
+  It differs from plain "termbox" (no number suffix) by being smaller, checking
+  errors more consistently, and supporting extended unicode characters.
+
+  This library exports a "Termbox2" monad providing exception handling, data
+  conversion, and other conveniences for working wih termbox2.
+
+  These Haskell bindings are unfinished (hence the version being @0.x@).
+  Complete support for truecolor and wide characters is not implemented yet
+  but will be before @1.0@.
+
+name:               termbox2-hs
+version:            0.1.0.0
+license:            AGPL-3.0-or-later
+license-file:       LICENSE
+synopsis:           Bindings to termbox2
+author:             Gatlin Cheyenne Johnson
+maintainer:         gatlin@niltag.net
+category:           User Interfaces
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+extra-source-files:
+  lib/termbox.c
+  lib/termbox.h
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:  Termbox2
+    build-depends:    base ^>=4.17.0.0,
+                      mtl
+    hs-source-dirs:   src
+    default-language: GHC2021
+    include-dirs: lib
+    includes: termbox.h
+    c-sources:
+      lib/termbox.c
+
+test-suite termbox2-hs-test
+    import:           warnings
+
+    default-language: GHC2021
+
+    type:             exitcode-stdio-1.0
+
+    hs-source-dirs:   test
+
+    main-is:          Main.hs
+
+    build-depends:
+        base ^>=4.17.0.0,
+        termbox2-hs
