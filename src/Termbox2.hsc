@@ -133,6 +133,12 @@ module Termbox2
   , keyMouseRelease
   , keyMouseWheelUp
   , keyMouseWheelDown
+  -- ** Modifiers
+  , Tb2Mod(..)
+  , modAlt
+  , modCtrl
+  , modShift
+  , modMotion
   -- ** Caps
   , Tb2Cap(..)
   , capF1
@@ -192,10 +198,6 @@ module Termbox2
   , attrReverse
   , attrItalic
   , attrBlink
-  , modAlt
-  , modCtrl
-  , modShift
-  , modMotion
   -- ** Input modes
   , Tb2Input(..)
   , inputCurrent
@@ -262,7 +264,7 @@ instance Storable Tb2Event where
     (#poke struct tb_event, x) ptr    _x
     (#poke struct tb_event, y) ptr    _y
 
--- * Foreign functions
+-- Foreign functions
 
 foreign import ccall unsafe "tb_init"
   ffi_tb_init :: IO CInt
@@ -521,8 +523,6 @@ newtype Tb2Err = Tb2Err CInt
   , errResizeSscanf = TB_ERR_RESIZE_SSCANF
   , errCapCollision = TB_ERR_CAP_COLLISION
 }
-
--- * Termbox2 Monad
 
 -- | Enables writing text-based user interfaces with termbox2.
 newtype Termbox2 a = Termbox2 (ReaderT (Ptr Tb2Event) (ExceptT Tb2Err IO) a)
