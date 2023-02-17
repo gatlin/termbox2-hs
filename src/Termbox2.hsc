@@ -68,7 +68,7 @@ module Termbox2
   , keyCtrlE
   , keyCtrlF
   , keyCtrlG
-  , keyCtrlBackspace
+  , keyBackspace
   , keyCtrlH
   , keyCtrlTab
   , keyCtrlI
@@ -316,7 +316,7 @@ newtype Tb2Key = Tb2Key CInt
   , keyCtrlE                      = TB_KEY_CTRL_E
   , keyCtrlF                      = TB_KEY_CTRL_F
   , keyCtrlG                      = TB_KEY_CTRL_G
-  , keyCtrlBackspace              = TB_KEY_BACKSPACE
+  , keyBackspace                  = TB_KEY_BACKSPACE
   , keyCtrlH                      = TB_KEY_CTRL_H
   , keyCtrlTab                    = TB_KEY_TAB
   , keyCtrlI                      = TB_KEY_CTRL_I

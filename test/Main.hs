@@ -52,4 +52,4 @@ main = do
     Left err -> putStrLn . show $ concat
       [ "Error: ", show err ]
     Right evt -> putStrLn . show $ concat
-      [ "Event: ", show evt ]
+      [ "Event: ", show ((fromIntegral $ Tb2._ch evt) == (fromIntegral Tb2.keyCtrlC))]
