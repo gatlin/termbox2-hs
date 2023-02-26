@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -36,6 +36,16 @@ centerText msg = do
   let bgAttrs = Tb2.colorMagenta
   Tb2.print cx cy fgAttrs bgAttrs msg
 
+loop :: Termbox2 ()
+loop = do
+  evt <- Tb2.pollEvent
+  unless (Tb2._key evt == Tb2.keyCtrlC) $! do
+    Tb2.clear
+    screenBorder 2
+    centerText $! show evt
+    Tb2.present
+    loop
+
 main :: IO ()
 main = do
   ret <- runTermbox2 $! do
@@ -45,12 +55,10 @@ main = do
     screenBorder 2
     centerText "=> Press the Any key ..."
     Tb2.present
-    evt1 <- Tb2.pollEvent
-    evt2 <- Tb2.pollEvent
+    loop
     Tb2.shutdown
-    return (evt1, evt2)
+    return ()
   case ret of
     Left err -> putStrLn . show $ concat
       [ "Error: ", show err ]
-    Right evt -> putStrLn . show $ concat
-      [ "Event: ", show evt]
+    Right () -> putStrLn "Great success"
