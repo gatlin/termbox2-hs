@@ -217,7 +217,9 @@ where
 import Prelude hiding (init, print)
 import Data.Bits (Bits(..), (.|.))
 import Data.Int (Int32)
+import Data.Word (Word8, Word16, Word32)
 import Foreign.C (CInt(..))
+import Foreign.C.Error (Errno(..), eINTR)
 import Foreign.C.String (CString, withCString)
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr)
@@ -232,14 +234,14 @@ import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 
 -- | Incoming event from the tty.
 data Tb2Event = Tb2Event
-  { _type :: Tb2EventType -- ^ one of TB_EVENT_* constants
-  , _mod  :: Tb2Mod       -- ^ bitwise TB_MOD_* constants
-  , _key  :: Tb2Key       -- ^ one of TB_KEY_* constants
-  , _ch   :: Int32        -- ^ a Unicode code point
-  , _w    :: Int32        -- ^ resize width
-  , _h    :: Int32        -- ^ resize height
-  , _x    :: Int32        -- ^ mouse x
-  , _y    :: Int32        -- ^ mouse y
+  { _type :: !Tb2EventType -- ^ one of TB_EVENT_* constants
+  , _mod  :: !Tb2Mod       -- ^ bitwise TB_MOD_* constants
+  , _key  :: !Tb2Key       -- ^ one of TB_KEY_* constants
+  , _ch   :: !Word32       -- ^ a Unicode code point
+  , _w    :: !Int32        -- ^ resize width
+  , _h    :: !Int32        -- ^ resize height
+  , _x    :: !Int32        -- ^ mouse x
+  , _y    :: !Int32        -- ^ mouse y
   } deriving (Show, Eq, Ord)
 
 instance Storable Tb2Event where
@@ -288,140 +290,142 @@ foreign import ccall unsafe "tb_present"
   ffi_tb_present :: IO CInt
 foreign import ccall unsafe "tb_set_cursor"
   ffi_tb_set_cursor :: CInt -> CInt -> IO CInt
-foreign import ccall unsafe  "tb_hide_cursor"
+foreign import ccall unsafe "tb_hide_cursor"
   ffi_tb_hide_cursor :: IO CInt
-foreign import ccall unsafe  "tb_set_cell"
+foreign import ccall unsafe "tb_set_cell"
   ffi_tb_set_cell :: CInt -> CInt -> CInt -> CInt -> CInt -> IO CInt
-foreign import ccall unsafe  "tb_set_input_mode"
+foreign import ccall unsafe "tb_set_input_mode"
   ffi_tb_set_input_mode :: CInt -> IO CInt
-foreign import ccall unsafe  "tb_set_output_mode"
+foreign import ccall unsafe "tb_set_output_mode"
   ffi_tb_set_output_mode :: CInt -> IO CInt
-foreign import ccall unsafe  "tb_peek_event"
+foreign import ccall unsafe "tb_peek_event"
   ffi_tb_peek_event :: Ptr Tb2Event -> CInt -> IO CInt
-foreign import ccall unsafe  "tb_poll_event"
+foreign import ccall unsafe "tb_poll_event"
   ffi_tb_poll_event :: Ptr Tb2Event -> IO CInt
-foreign import ccall unsafe  "tb_print"
+foreign import ccall unsafe "tb_print"
   ffi_tb_print :: CInt -> CInt -> CInt -> CInt -> CString -> IO CInt
+foreign import ccall unsafe "tb_last_errno"
+  ffi_tb_last_errno :: IO CInt
 
 -- * Constants
-newtype Tb2Key = Tb2Key CInt
+newtype Tb2Key = Tb2Key Word16
   deriving (Show, Eq, Ord, Enum, Num, Real, Integral, Storable)
 #{enum Tb2Key, Tb2Key
-  , keyCtrlTilde                  = TB_KEY_CTRL_TILDE
-  , keyCtrl2                      = TB_KEY_CTRL_2
-  , keyCtrlA                      = TB_KEY_CTRL_A
-  , keyCtrlB                      = TB_KEY_CTRL_B
-  , keyCtrlC                      = TB_KEY_CTRL_C
-  , keyCtrlD                      = TB_KEY_CTRL_D
-  , keyCtrlE                      = TB_KEY_CTRL_E
-  , keyCtrlF                      = TB_KEY_CTRL_F
-  , keyCtrlG                      = TB_KEY_CTRL_G
-  , keyBackspace                  = TB_KEY_BACKSPACE
-  , keyCtrlH                      = TB_KEY_CTRL_H
-  , keyCtrlTab                    = TB_KEY_TAB
-  , keyCtrlI                      = TB_KEY_CTRL_I
-  , keyCtrlJ                      = TB_KEY_CTRL_J
-  , keyCtrlK                      = TB_KEY_CTRL_K
-  , keyCtrlL                      = TB_KEY_CTRL_L
-  , keyCtrlEnter                  = TB_KEY_ENTER
-  , keyCtrlM                      = TB_KEY_CTRL_M
-  , keyCtrlN                      = TB_KEY_CTRL_N
-  , keyCtrlO                      = TB_KEY_CTRL_O
-  , keyCtrlP                      = TB_KEY_CTRL_P
-  , keyCtrlQ                      = TB_KEY_CTRL_Q
-  , keyCtrlR                      = TB_KEY_CTRL_R
-  , keyCtrlS                      = TB_KEY_CTRL_S
-  , keyCtrlT                      = TB_KEY_CTRL_T
-  , keyCtrlU                      = TB_KEY_CTRL_U
-  , keyCtrlV                      = TB_KEY_CTRL_V
-  , keyCtrlW                      = TB_KEY_CTRL_W
-  , keyCtrlX                      = TB_KEY_CTRL_X
-  , keyCtrlY                      = TB_KEY_CTRL_Y
-  , keyCtrlZ                      = TB_KEY_CTRL_Z
-  , keyCtrlEsc                    = TB_KEY_ESC
-  , keyCtrlLsqBracket             = TB_KEY_CTRL_LSQ_BRACKET
-  , keyCtrl3                      = TB_KEY_CTRL_3
-  , keyCtrl4                      = TB_KEY_CTRL_4
-  , keyCtrlBackslash              = TB_KEY_CTRL_BACKSLASH
-  , keyCtrl5                      = TB_KEY_CTRL_5
-  , keyCtrlRsqBracket             = TB_KEY_CTRL_RSQ_BRACKET
-  , keyCtrl6                      = TB_KEY_CTRL_6
-  , keyCtrl7                      = TB_KEY_CTRL_7
-  , keyCtrlSlash                  = TB_KEY_CTRL_SLASH
-  , keyCtrlUnderscore             = TB_KEY_CTRL_UNDERSCORE
-  , keySpace                      = TB_KEY_SPACE
-  , keyBackspace2                 = TB_KEY_BACKSPACE2
-  , keyCtrl8                      = TB_KEY_CTRL_8
-  , keyF1                         = TB_KEY_F1
-  , keyF2                         = TB_KEY_F2
-  , keyF3                         = TB_KEY_F3
-  , keyF4                         = TB_KEY_F4
-  , keyF5                         = TB_KEY_F5
-  , keyF6                         = TB_KEY_F6
-  , keyF7                         = TB_KEY_F7
-  , keyF8                         = TB_KEY_F8
-  , keyF9                         = TB_KEY_F9
-  , keyF10                        = TB_KEY_F10
-  , keyF11                        = TB_KEY_F11
-  , keyF12                        = TB_KEY_F12
-  , keyInsert                     = TB_KEY_INSERT
-  , keyDelete                     = TB_KEY_DELETE
-  , keyHome                       = TB_KEY_HOME
-  , keyEnd                        = TB_KEY_END
-  , keyPgUp                       = TB_KEY_PGUP
-  , keyPgDn                       = TB_KEY_PGDN
-  , keyArrowUp                    = TB_KEY_ARROW_UP
-  , keyArrowDown                  = TB_KEY_ARROW_DOWN
-  , keyArrowLeft                  = TB_KEY_ARROW_LEFT
-  , keyArrowRight                 = TB_KEY_ARROW_RIGHT
-  , keyBackTab                    = TB_KEY_BACK_TAB
-  , keyMouseLeft                  = TB_KEY_MOUSE_LEFT
-  , keyMouseRight                 = TB_KEY_MOUSE_RIGHT
-  , keyMouseMiddle                = TB_KEY_MOUSE_MIDDLE
-  , keyMouseRelease               = TB_KEY_MOUSE_RELEASE
-  , keyMouseWheelUp               = TB_KEY_MOUSE_WHEEL_UP
-  , keyMouseWheelDown             = TB_KEY_MOUSE_WHEEL_DOWN
+  , keyCtrlTilde              = TB_KEY_CTRL_TILDE
+  , keyCtrl2                  = TB_KEY_CTRL_2
+  , keyCtrlA                  = TB_KEY_CTRL_A
+  , keyCtrlB                  = TB_KEY_CTRL_B
+  , keyCtrlC                  = TB_KEY_CTRL_C
+  , keyCtrlD                  = TB_KEY_CTRL_D
+  , keyCtrlE                  = TB_KEY_CTRL_E
+  , keyCtrlF                  = TB_KEY_CTRL_F
+  , keyCtrlG                  = TB_KEY_CTRL_G
+  , keyBackspace              = TB_KEY_BACKSPACE
+  , keyCtrlH                  = TB_KEY_CTRL_H
+  , keyCtrlTab                = TB_KEY_TAB
+  , keyCtrlI                  = TB_KEY_CTRL_I
+  , keyCtrlJ                  = TB_KEY_CTRL_J
+  , keyCtrlK                  = TB_KEY_CTRL_K
+  , keyCtrlL                  = TB_KEY_CTRL_L
+  , keyCtrlEnter              = TB_KEY_ENTER
+  , keyCtrlM                  = TB_KEY_CTRL_M
+  , keyCtrlN                  = TB_KEY_CTRL_N
+  , keyCtrlO                  = TB_KEY_CTRL_O
+  , keyCtrlP                  = TB_KEY_CTRL_P
+  , keyCtrlQ                  = TB_KEY_CTRL_Q
+  , keyCtrlR                  = TB_KEY_CTRL_R
+  , keyCtrlS                  = TB_KEY_CTRL_S
+  , keyCtrlT                  = TB_KEY_CTRL_T
+  , keyCtrlU                  = TB_KEY_CTRL_U
+  , keyCtrlV                  = TB_KEY_CTRL_V
+  , keyCtrlW                  = TB_KEY_CTRL_W
+  , keyCtrlX                  = TB_KEY_CTRL_X
+  , keyCtrlY                  = TB_KEY_CTRL_Y
+  , keyCtrlZ                  = TB_KEY_CTRL_Z
+  , keyCtrlEsc                = TB_KEY_ESC
+  , keyCtrlLsqBracket         = TB_KEY_CTRL_LSQ_BRACKET
+  , keyCtrl3                  = TB_KEY_CTRL_3
+  , keyCtrl4                  = TB_KEY_CTRL_4
+  , keyCtrlBackslash          = TB_KEY_CTRL_BACKSLASH
+  , keyCtrl5                  = TB_KEY_CTRL_5
+  , keyCtrlRsqBracket         = TB_KEY_CTRL_RSQ_BRACKET
+  , keyCtrl6                  = TB_KEY_CTRL_6
+  , keyCtrl7                  = TB_KEY_CTRL_7
+  , keyCtrlSlash              = TB_KEY_CTRL_SLASH
+  , keyCtrlUnderscore         = TB_KEY_CTRL_UNDERSCORE
+  , keySpace                  = TB_KEY_SPACE
+  , keyBackspace2             = TB_KEY_BACKSPACE2
+  , keyCtrl8                  = TB_KEY_CTRL_8
+  , keyF1                     = TB_KEY_F1
+  , keyF2                     = TB_KEY_F2
+  , keyF3                     = TB_KEY_F3
+  , keyF4                     = TB_KEY_F4
+  , keyF5                     = TB_KEY_F5
+  , keyF6                     = TB_KEY_F6
+  , keyF7                     = TB_KEY_F7
+  , keyF8                     = TB_KEY_F8
+  , keyF9                     = TB_KEY_F9
+  , keyF10                    = TB_KEY_F10
+  , keyF11                    = TB_KEY_F11
+  , keyF12                    = TB_KEY_F12
+  , keyInsert                 = TB_KEY_INSERT
+  , keyDelete                 = TB_KEY_DELETE
+  , keyHome                   = TB_KEY_HOME
+  , keyEnd                    = TB_KEY_END
+  , keyPgUp                   = TB_KEY_PGUP
+  , keyPgDn                   = TB_KEY_PGDN
+  , keyArrowUp                = TB_KEY_ARROW_UP
+  , keyArrowDown              = TB_KEY_ARROW_DOWN
+  , keyArrowLeft              = TB_KEY_ARROW_LEFT
+  , keyArrowRight             = TB_KEY_ARROW_RIGHT
+  , keyBackTab                = TB_KEY_BACK_TAB
+  , keyMouseLeft              = TB_KEY_MOUSE_LEFT
+  , keyMouseRight             = TB_KEY_MOUSE_RIGHT
+  , keyMouseMiddle            = TB_KEY_MOUSE_MIDDLE
+  , keyMouseRelease           = TB_KEY_MOUSE_RELEASE
+  , keyMouseWheelUp           = TB_KEY_MOUSE_WHEEL_UP
+  , keyMouseWheelDown         = TB_KEY_MOUSE_WHEEL_DOWN
 }
 
 newtype Tb2Cap = Tb2Cap CInt
   deriving (Show, Eq, Ord, Num, Enum, Real, Integral)
 #{enum Tb2Cap, Tb2Cap
-  , capF1                                 = TB_CAP_F1
-  , capF2                                 = TB_CAP_F2
-  , capF3                                 = TB_CAP_F3
-  , capF4                                 = TB_CAP_F4
-  , capF5                                 = TB_CAP_F5
-  , capF6                                 = TB_CAP_F6
-  , capF7                                 = TB_CAP_F7
-  , capF8                                 = TB_CAP_F8
-  , capF9                                 = TB_CAP_F9
-  , capF10                                = TB_CAP_F10
-  , capF11                                = TB_CAP_F11
-  , capF12                                = TB_CAP_F12
-  , capInsert                             = TB_CAP_INSERT
-  , capDelete                             = TB_CAP_DELETE
-  , capHome                               = TB_CAP_HOME
-  , capEnd                                = TB_CAP_END
-  , capPgUp                               = TB_CAP_PGUP
-  , capPgDn                               = TB_CAP_PGDN
-  , capArrowUp                            = TB_CAP_ARROW_UP
-  , capArrowDown                          = TB_CAP_ARROW_DOWN
-  , capArrowLeft                          = TB_CAP_ARROW_LEFT
-  , capArrowRight                         = TB_CAP_ARROW_RIGHT
-  , capBackTab                            = TB_CAP_BACK_TAB
-  , capEnterCA                            = TB_CAP_ENTER_CA
-  , capExitCA                             = TB_CAP_EXIT_CA
-  , capShowCursor                         = TB_CAP_SHOW_CURSOR
-  , capHideCursor                         = TB_CAP_HIDE_CURSOR
-  , capClearScreen                        = TB_CAP_CLEAR_SCREEN
-  , capSGR0                               = TB_CAP_SGR0
-  , capUnderline                          = TB_CAP_UNDERLINE
-  , capBold                               = TB_CAP_BOLD
-  , capBlink                              = TB_CAP_BLINK
-  , capItalic                             = TB_CAP_ITALIC
-  , capReverse                            = TB_CAP_REVERSE
-  , capEnterKeypad                        = TB_CAP_ENTER_KEYPAD
-  , capExitKeypad                         = TB_CAP_EXIT_KEYPAD
+  , capF1                     = TB_CAP_F1
+  , capF2                     = TB_CAP_F2
+  , capF3                     = TB_CAP_F3
+  , capF4                     = TB_CAP_F4
+  , capF5                     = TB_CAP_F5
+  , capF6                     = TB_CAP_F6
+  , capF7                     = TB_CAP_F7
+  , capF8                     = TB_CAP_F8
+  , capF9                     = TB_CAP_F9
+  , capF10                    = TB_CAP_F10
+  , capF11                    = TB_CAP_F11
+  , capF12                    = TB_CAP_F12
+  , capInsert                 = TB_CAP_INSERT
+  , capDelete                 = TB_CAP_DELETE
+  , capHome                   = TB_CAP_HOME
+  , capEnd                    = TB_CAP_END
+  , capPgUp                   = TB_CAP_PGUP
+  , capPgDn                   = TB_CAP_PGDN
+  , capArrowUp                = TB_CAP_ARROW_UP
+  , capArrowDown              = TB_CAP_ARROW_DOWN
+  , capArrowLeft              = TB_CAP_ARROW_LEFT
+  , capArrowRight             = TB_CAP_ARROW_RIGHT
+  , capBackTab                = TB_CAP_BACK_TAB
+  , capEnterCA                = TB_CAP_ENTER_CA
+  , capExitCA                 = TB_CAP_EXIT_CA
+  , capShowCursor             = TB_CAP_SHOW_CURSOR
+  , capHideCursor             = TB_CAP_HIDE_CURSOR
+  , capClearScreen            = TB_CAP_CLEAR_SCREEN
+  , capSGR0                   = TB_CAP_SGR0
+  , capUnderline              = TB_CAP_UNDERLINE
+  , capBold                   = TB_CAP_BOLD
+  , capBlink                  = TB_CAP_BLINK
+  , capItalic                 = TB_CAP_ITALIC
+  , capReverse                = TB_CAP_REVERSE
+  , capEnterKeypad            = TB_CAP_ENTER_KEYPAD
+  , capExitKeypad             = TB_CAP_EXIT_KEYPAD
 }
 
 newtype Tb2ColorAttr = Tb2ColorAttr CInt
@@ -446,12 +450,12 @@ newtype Tb2ColorAttr = Tb2ColorAttr CInt
 instance Semigroup Tb2ColorAttr where
   (<>) = (.|.)
 
-newtype Tb2EventType = Tb2EventType CInt
+newtype Tb2EventType = Tb2EventType Word8
   deriving (Eq, Ord, Num, Enum, Real, Integral, Storable)
 #{enum Tb2EventType, Tb2EventType
-  , eventKey = TB_EVENT_KEY
-  , eventResize = TB_EVENT_RESIZE
-  , eventMouse = TB_EVENT_MOUSE
+  , eventKey                  = TB_EVENT_KEY
+  , eventResize               = TB_EVENT_RESIZE
+  , eventMouse                = TB_EVENT_MOUSE
 }
 
 instance Show Tb2EventType where
@@ -461,13 +465,13 @@ instance Show Tb2EventType where
     | evt == eventMouse = "[Mouse]"
     | otherwise = concat ["[Unknown event type: ", show raw, "]" ]
 
-newtype Tb2Mod = Tb2Mod CInt
+newtype Tb2Mod = Tb2Mod Word8
   deriving (Show, Eq, Ord, Num, Enum, Real, Integral, Bits, Storable)
 #{enum Tb2Mod, Tb2Mod
-  , modAlt = TB_MOD_ALT
-  , modCtrl = TB_MOD_CTRL
-  , modShift = TB_MOD_SHIFT
-  , modMotion = TB_MOD_MOTION
+  , modAlt                    = TB_MOD_ALT
+  , modCtrl                   = TB_MOD_CTRL
+  , modShift                  = TB_MOD_SHIFT
+  , modMotion                 = TB_MOD_MOTION
 }
 
 instance Semigroup Tb2Mod where
@@ -476,10 +480,10 @@ instance Semigroup Tb2Mod where
 newtype Tb2Input = Tb2Input CInt
   deriving (Show, Eq, Ord, Num, Enum,   Real, Integral, Bits)
 #{enum Tb2Input, Tb2Input
-  , inputCurrent = TB_INPUT_CURRENT
-  , inputEsc = TB_INPUT_ESC
-  , inputAlt = TB_INPUT_ALT
-  , inputMouse = TB_INPUT_MOUSE
+  , inputCurrent              = TB_INPUT_CURRENT
+  , inputEsc                  = TB_INPUT_ESC
+  , inputAlt                  = TB_INPUT_ALT
+  , inputMouse                = TB_INPUT_MOUSE
 }
 
 instance Semigroup Tb2Input where
@@ -488,11 +492,11 @@ instance Semigroup Tb2Input where
 newtype Tb2Output = Tb2Output CInt
   deriving (Show, Eq, Ord, Num, Enum, Real, Integral, Bits)
 #{enum Tb2Output, Tb2Output
-  , outputCurrent = TB_OUTPUT_CURRENT
-  , outputNormal = TB_OUTPUT_NORMAL
-  , output256 = TB_OUTPUT_256
-  , output216 = TB_OUTPUT_216
-  , outputGrayscale = TB_OUTPUT_GRAYSCALE
+  , outputCurrent             = TB_OUTPUT_CURRENT
+  , outputNormal              = TB_OUTPUT_NORMAL
+  , output256                 = TB_OUTPUT_256
+  , output216                 = TB_OUTPUT_216
+  , outputGrayscale           = TB_OUTPUT_GRAYSCALE
 }
 
 instance Semigroup Tb2Output where
@@ -501,27 +505,27 @@ instance Semigroup Tb2Output where
 newtype Tb2Err = Tb2Err CInt
   deriving (Show, Eq, Ord, Num, Enum, Real, Integral)
 #{enum Tb2Err, Tb2Err
-  , errOk = TB_OK
-  , errErr = TB_ERR
-  , errNeedMore = TB_ERR_NEED_MORE
-  , errInitAlready = TB_ERR_INIT_ALREADY
-  , errInitOpen = TB_ERR_INIT_OPEN
-  , errMem = TB_ERR_MEM
-  , errNoEvent = TB_ERR_NO_EVENT
-  , errNoTerm = TB_ERR_NO_TERM
-  , errNotInit = TB_ERR_NOT_INIT
-  , errOutOfBounds = TB_ERR_OUT_OF_BOUNDS
-  , errRead = TB_ERR_READ
-  , errResizeIOCTL = TB_ERR_RESIZE_IOCTL
-  , errResizePipe = TB_ERR_RESIZE_PIPE
-  , errResizeSigaction = TB_ERR_RESIZE_SIGACTION
-  , errPoll = TB_ERR_POLL
-  , errUnsupportedTerm = TB_ERR_UNSUPPORTED_TERM
-  , errResizeWrite = TB_ERR_RESIZE_WRITE
-  , errResizePoll = TB_ERR_RESIZE_POLL
-  , errResizeRead = TB_ERR_RESIZE_READ
-  , errResizeSscanf = TB_ERR_RESIZE_SSCANF
-  , errCapCollision = TB_ERR_CAP_COLLISION
+  , errOk                     = TB_OK
+  , errErr                    = TB_ERR
+  , errNeedMore               = TB_ERR_NEED_MORE
+  , errInitAlready            = TB_ERR_INIT_ALREADY
+  , errInitOpen               = TB_ERR_INIT_OPEN
+  , errMem                    = TB_ERR_MEM
+  , errNoEvent                = TB_ERR_NO_EVENT
+  , errNoTerm                 = TB_ERR_NO_TERM
+  , errNotInit                = TB_ERR_NOT_INIT
+  , errOutOfBounds            = TB_ERR_OUT_OF_BOUNDS
+  , errRead                   = TB_ERR_READ
+  , errResizeIOCTL            = TB_ERR_RESIZE_IOCTL
+  , errResizePipe             = TB_ERR_RESIZE_PIPE
+  , errResizeSigaction        = TB_ERR_RESIZE_SIGACTION
+  , errPoll                   = TB_ERR_POLL
+  , errUnsupportedTerm        = TB_ERR_UNSUPPORTED_TERM
+  , errResizeWrite            = TB_ERR_RESIZE_WRITE
+  , errResizePoll             = TB_ERR_RESIZE_POLL
+  , errResizeRead             = TB_ERR_RESIZE_READ
+  , errResizeSscanf           = TB_ERR_RESIZE_SSCANF
+  , errCapCollision           = TB_ERR_CAP_COLLISION
 }
 
 -- | Enables writing text-based user interfaces with termbox2.
@@ -686,12 +690,18 @@ print x y (Tb2ColorAttr fg) (Tb2ColorAttr bg) str = do
 
 -- | Blocks until an exception is thrown or an event is observed.
 pollEvent :: Termbox2 Tb2Event
-pollEvent = do
-  ptr <- ask
-  ret <- liftIO (ffi_tb_poll_event ptr)
-  if errOk == Tb2Err ret
-    then liftIO (peek ptr)
-    else throwError (Tb2Err ret)
+pollEvent = ask >>= loop where
+  loop ptr = do
+    ret <- liftIO $! ffi_tb_poll_event ptr
+    if errOk == Tb2Err ret
+      then (liftIO $ peek ptr) >>= return
+      else if errPoll == Tb2Err ret
+        then do
+          lastErr <- liftIO ffi_tb_last_errno
+          if (Errno lastErr) == eINTR
+            then loop ptr
+            else throwError (Tb2Err ret)
+        else throwError (Tb2Err ret)
 
 -- | Blocks for the specified number of MILLISECONDS until an exception is
 -- thrown or an event is received; returns 'Nothing' if the timeout is reached

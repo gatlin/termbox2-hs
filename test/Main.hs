@@ -38,18 +38,19 @@ centerText msg = do
 
 main :: IO ()
 main = do
-  ret <- runTermbox2 $ do
+  ret <- runTermbox2 $! do
     Tb2.init
     _ <- Tb2.setInputMode (Tb2.inputEsc <> Tb2.inputMouse)
     Tb2.clear
     screenBorder 2
     centerText "=> Press the Any key ..."
     Tb2.present
-    evt <- Tb2.pollEvent
+    evt1 <- Tb2.pollEvent
+    evt2 <- Tb2.pollEvent
     Tb2.shutdown
-    return evt
+    return (evt1, evt2)
   case ret of
     Left err -> putStrLn . show $ concat
       [ "Error: ", show err ]
     Right evt -> putStrLn . show $ concat
-      [ "Event: ", show ((fromIntegral $ Tb2._ch evt) == (fromIntegral Tb2.keyCtrlC))]
+      [ "Event: ", show evt]
