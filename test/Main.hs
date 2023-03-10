@@ -39,16 +39,18 @@ centerText msg = do
 loop :: Termbox2 ()
 loop = do
   evt <- Tb2.pollEvent
-  unless (Tb2._key evt == Tb2.keyCtrlC) $! do
+  unless (Tb2._key evt == Tb2.keyCtrlQ) $! do
     Tb2.clear
     screenBorder 2
-    centerText $! show evt
+    w <- Tb2.width
+    let txt = take (w-2) (show evt)
+    centerText txt
     Tb2.present
     loop
 
 main :: IO ()
 main = do
-  ret <- runTermbox2 $! do
+  ret <- runTermbox2 $ do
     Tb2.init
     _ <- Tb2.setInputMode (Tb2.inputEsc <> Tb2.inputMouse)
     Tb2.clear

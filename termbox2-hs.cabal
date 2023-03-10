@@ -13,7 +13,7 @@ description:
   but will be before @1.0@.
 
 name:               termbox2-hs
-version:            0.2.0.1
+version:            0.2.0.2
 license:            AGPL-3.0-or-later
 license-file:       LICENSE
 synopsis:           Bindings to termbox2
