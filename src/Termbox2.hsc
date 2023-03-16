@@ -226,8 +226,7 @@ import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable(..))
 import Control.Monad.IO.Class (MonadIO(..))
-import Control.Monad.Except (MonadError(..), ExceptT, runExceptT)
-import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT, runReaderT, ask)
 
 #include "termbox.h"
 
@@ -530,76 +529,70 @@ newtype Tb2Err = Tb2Err CInt
 }
 
 -- | Enables writing text-based user interfaces with termbox2.
-newtype Termbox2 a = Termbox2 (ReaderT (Ptr Tb2Event) (ExceptT Tb2Err IO) a)
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadIO
-           , MonadError Tb2Err
-           , MonadReader (Ptr Tb2Event) )
+type Termbox2 = ReaderT (Ptr Tb2Event) IO
 
 -- | Allocates the 'Tb2Event' struct pointer, runs the UI, and frees.
-runTermbox2 :: Termbox2 a -> IO (Either Tb2Err a)
-runTermbox2 (Termbox2 m) = alloca (runExceptT . runReaderT m)
+runTermbox2 :: Termbox2 a -> IO a
+runTermbox2 = alloca . runReaderT
 
-wrapException :: (MonadIO m, MonadError Tb2Err m) => IO CInt -> m ()
-wrapException expr = do
+wrap :: (MonadIO m) => IO CInt -> m ()
+wrap expr = do
   ret <- (liftIO expr) <&> Tb2Err
   if errOk == ret
     then return ()
-    else throwError ret
-{-# INLINE wrapException #-}
+    else error $! show ret
+{-# INLINE wrap #-}
 
 -- | Must be called before anything else. The termbox2 documentation notes that
 -- handling some exceptions requires calling 'shutdown' followed by 'init'
 -- again, hence this is not invoked automatically by 'runTermbox2'.
 init :: Termbox2 ()
-init = wrapException ffi_tb_init
+init = wrap ffi_tb_init
 
 initFile :: String -> Termbox2 ()
-initFile filePath = wrapException $! withCString filePath ffi_tb_init_file
+initFile filePath = wrap $! withCString filePath ffi_tb_init_file
 
 initFd :: (Integral n) => n -> Termbox2 ()
-initFd fd = wrapException $! ffi_tb_init_fd (fromIntegral fd)
+initFd fd = wrap $! ffi_tb_init_fd (fromIntegral fd)
 
 initRwFd :: (Integral n, Integral o) => n -> o -> Termbox2 ()
 initRwFd rfd wfd =
-  wrapException $! ffi_tb_init_rwfd (fromIntegral rfd) (fromIntegral wfd)
+  wrap $! ffi_tb_init_rwfd (fromIntegral rfd) (fromIntegral wfd)
 
 -- | Call this when you're finished or your terminal will act funky after exit!
 shutdown :: Termbox2 ()
-shutdown = wrapException ffi_tb_shutdown
+shutdown = wrap ffi_tb_shutdown
 
 -- | Width of the drawing space in characters.
 width :: Integral n => Termbox2 n
-width = liftIO ffi_tb_width >>= return . fromIntegral
+width = liftIO ffi_tb_width <&> fromIntegral
 
 -- | Height of the drawing space in lines.
 height :: Integral n => Termbox2 n
-height = liftIO ffi_tb_height >>= return . fromIntegral
+height = liftIO ffi_tb_height <&> fromIntegral
 
 -- | Draws the buffer to the screen.
 present :: Termbox2 ()
-present = wrapException ffi_tb_present
+present = wrap ffi_tb_present
 
 -- | Clears the screen.
 clear :: Termbox2 ()
-clear = wrapException ffi_tb_clear
+clear = wrap ffi_tb_clear
 
 -- | Specify the foreground and background attributes to be applied when
 -- 'clear'ing the buffer.
 setClearAttrs :: Tb2ColorAttr -> Tb2ColorAttr -> Termbox2 ()
 setClearAttrs (Tb2ColorAttr fg) (Tb2ColorAttr bg) =
-  wrapException $! ffi_tb_set_clear_attrs fg bg
+  wrap $! ffi_tb_set_clear_attrs fg bg
 
 -- | Set the location of the cursor (upper-left character is origin).
 setCursor :: Int -> Int -> Termbox2 ()
 setCursor x y =
-  wrapException $! ffi_tb_set_cursor (fromIntegral x) (fromIntegral y)
+  wrap $! ffi_tb_set_cursor (fromIntegral x) (fromIntegral y)
 
 -- | Hide the mouse pointer.
 hideCursor :: Termbox2 ()
-hideCursor = wrapException ffi_tb_hide_cursor
+hideCursor = wrap ffi_tb_hide_cursor
 
 -- | Draw a single cell on the screen.
 setCell
@@ -609,7 +602,7 @@ setCell
   -> Tb2ColorAttr
   -> Tb2ColorAttr
   -> Termbox2 ()
-setCell x y ch (Tb2ColorAttr fg) (Tb2ColorAttr bg) = wrapException $!
+setCell x y ch (Tb2ColorAttr fg) (Tb2ColorAttr bg) = wrap $!
   ffi_tb_set_cell
     (fromIntegral x)
     (fromIntegral y)
@@ -625,7 +618,7 @@ print
   -> Tb2ColorAttr
   -> String
   -> Termbox2 ()
-print x y (Tb2ColorAttr fg) (Tb2ColorAttr bg) str = wrapException $!
+print x y (Tb2ColorAttr fg) (Tb2ColorAttr bg) str = wrap $!
   withCString str $! ffi_tb_print
     (fromIntegral x)
     (fromIntegral y)
@@ -641,7 +634,7 @@ setInputMode im@(Tb2Input inputMode) = do
     then return $! Just (Tb2Input ret)
     else if errOk == Tb2Err ret
       then return Nothing
-      else throwError (Tb2Err ret)
+      else error $! show ret
 
 -- | NB: If the argument is 'outputCurrent' then the function acts as a query
 -- and returns the current output mode.
@@ -652,7 +645,7 @@ setOutputMode om@(Tb2Output outputMode) = do
     then return $! Just (Tb2Output ret)
     else if errOk == Tb2Err ret
       then return Nothing
-      else throwError (Tb2Err ret)
+      else error $! show ret
 
 -- | Blocks until an exception is thrown or an event is observed.
 pollEvent :: Termbox2 Tb2Event
@@ -667,8 +660,8 @@ pollEvent = loop where
           lastErr <- liftIO ffi_tb_last_errno
           if (Errno lastErr) == eINTR
             then loop
-            else throwError ret
-        else throwError ret
+            else error $! show ret
+        else error $! show ret
   {-# NOINLINE loop #-}
 
 -- | Blocks for the specified number of MILLISECONDS until an exception is

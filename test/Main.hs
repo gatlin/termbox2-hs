@@ -60,7 +60,4 @@ main = do
     loop
     Tb2.shutdown
     return ()
-  case ret of
-    Left err -> putStrLn . show $ concat
-      [ "Error: ", show err ]
-    Right () -> putStrLn "Great success"
+  print ret
