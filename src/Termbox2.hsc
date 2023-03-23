@@ -580,7 +580,7 @@ clear :: Termbox2 ()
 clear = wrap ffi_tb_clear
 
 -- | Specify the foreground and background attributes to be applied when
--- 'clear'ing the buffer.
+-- 'clearing the buffer.
 setClearAttrs :: Tb2ColorAttr -> Tb2ColorAttr -> Termbox2 ()
 setClearAttrs (Tb2ColorAttr fg) (Tb2ColorAttr bg) =
   wrap $! ffi_tb_set_clear_attrs fg bg
@@ -647,32 +647,38 @@ setOutputMode om@(Tb2Output outputMode) = do
       then return Nothing
       else error $! show ret
 
+_waitEvent
+  :: (MonadIO m, Storable a)
+  => (Ptr a -> IO CInt)
+  -> ReaderT (Ptr a) m (Maybe a)
+_waitEvent fn = do
+  ptr <- ask
+  ret <- (liftIO $! fn ptr) <&> Tb2Err
+  if errOk == ret
+    then (liftIO $! peek ptr) <&> Just
+    else if errPoll == ret
+      then do
+        lastErr <- (liftIO ffi_tb_last_errno) <&> Errno
+        if lastErr == eINTR
+          then return Nothing
+          else error $! show ret
+      else error $! show ret
+{-# INLINE _waitEvent #-}
+
 -- | Blocks until an exception is thrown or an event is observed.
-pollEvent :: Termbox2 Tb2Event
-pollEvent = loop where
-  loop = do
-    ptr <- ask
-    ret <- (liftIO $! ffi_tb_poll_event ptr) <&> Tb2Err
-    if errOk == ret
-      then (liftIO $! peek ptr) >>= return
-      else if errPoll == ret
-        then do
-          lastErr <- liftIO ffi_tb_last_errno
-          if (Errno lastErr) == eINTR
-            then loop
-            else error $! show ret
-        else error $! show ret
-  {-# NOINLINE loop #-}
+-- The documentation for termbox2 says that sometimes this function returns
+-- TB_ERR_POLL which means simply "try again".
+-- Instead of imposing a specific loop implementation on client code this
+-- function returns a 'Maybe Tb2Event`.
+pollEvent :: Termbox2 (Maybe Tb2Event)
+pollEvent = _waitEvent ffi_tb_poll_event
 
 -- | Blocks for the specified number of MILLISECONDS until an exception is
 -- thrown or an event is received; returns 'Nothing' if the timeout is reached
 -- without incident or event.
+-- The documentation for termbox2 says that sometimes this function returns
+-- TB_ERR_POLL which means simply "try again".
+-- Instead of imposing a specific loop implementation on client code this
+-- function returns a 'Maybe Tb2Event'.
 peekEvent :: Int -> Termbox2 (Maybe Tb2Event)
-peekEvent waitMS = do
-  ptr <- ask
-  ret <- liftIO $! ffi_tb_peek_event ptr (fromIntegral waitMS)
-  if errOk == Tb2Err ret
-    then do
-      evt <- liftIO (peek ptr)
-      return (Just evt)
-    else return Nothing
+peekEvent = _waitEvent . flip ffi_tb_peek_event . fromIntegral

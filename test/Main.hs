@@ -1,8 +1,24 @@
+{-# LANGUAGE LambdaCase #-}
 module Main (main) where
 
-import Control.Monad (forM_, unless)
+import Control.Exception (Exception(..), bracket_, throwIO)
+import Control.Monad (forever, forM_, when)
+import Control.Monad.IO.Class (MonadIO(..))
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
+
+-----------------------------------------------------------------------------------------
+-- supports graceful exits
+-----------------------------------------------------------------------------------------
+
+data Shutdown = Shutdown deriving (Show)
+instance Exception Shutdown
+halt :: MonadIO m => m a
+halt = liftIO $! throwIO Shutdown
+
+-----------------------------------------------------------------------------------------
+-- drawing utilities
+-----------------------------------------------------------------------------------------
 
 drawRect :: Int -> Int -> Int -> Int -> Termbox2 ()
 drawRect left top w h = do
@@ -36,28 +52,32 @@ centerText msg = do
   let bgAttrs = Tb2.colorMagenta
   Tb2.print cx cy fgAttrs bgAttrs msg
 
-loop :: Termbox2 ()
-loop = do
-  evt <- Tb2.pollEvent
-  unless (Tb2._key evt == Tb2.keyCtrlQ) $! do
+-----------------------------------------------------------------------------------------
+-- application loop (the fun part!)
+-----------------------------------------------------------------------------------------
+
+loop, setup, dispose :: Termbox2 ()
+loop = forever $ Tb2.pollEvent >>= \case
+  Nothing -> return ()
+  Just evt -> do
+    when (Tb2._key evt == Tb2.keyCtrlQ) $! halt
     Tb2.clear
     screenBorder 2
     w <- Tb2.width
     let txt = take (w-2) (show evt)
     centerText txt
     Tb2.present
-    loop
 
+setup = do
+  Tb2.init
+  _ <- Tb2.setInputMode (Tb2.inputEsc <> Tb2.inputMouse)
+  Tb2.clear
+  screenBorder 2
+  centerText "=> Press the Any key ..."
+  Tb2.present
+
+dispose = Tb2.shutdown
+
+-- at last, I have organically stumbled upon an unliftio use case
 main :: IO ()
-main = do
-  ret <- runTermbox2 $ do
-    Tb2.init
-    _ <- Tb2.setInputMode (Tb2.inputEsc <> Tb2.inputMouse)
-    Tb2.clear
-    screenBorder 2
-    centerText "=> Press the Any key ..."
-    Tb2.present
-    loop
-    Tb2.shutdown
-    return ()
-  print ret
+main = bracket_ (runTermbox2 setup) (runTermbox2 dispose) (runTermbox2 loop)
