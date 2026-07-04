@@ -4,6 +4,7 @@ module Main (main) where
 import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.Char (chr)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -111,8 +112,8 @@ handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
 handleEvent evt lineWidth state
   | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
   | otherwise = 
-      -- We only advance if the event contains a character
-      let char = Tb2._ch evt
+      -- Convert Word32 code point to Haskell Char
+      let char = chr (fromIntegral (Tb2._ch evt))
           newTypedText = typedText state ++ [char]
           newCursorIdx = length newTypedText
           -- If the cursor moves past the end of the current line, shift the view offset
