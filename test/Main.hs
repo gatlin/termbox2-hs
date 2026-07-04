@@ -22,7 +22,7 @@ halt = liftIO $! throwIO Shutdown
 
 data GameState = GameState
   { targetText  :: String
-  , cursorIdx   :: Int
+  , typedText   :: String
   , viewOffset  :: Int
   }
 
@@ -41,7 +41,7 @@ generateStream = unwords $ cycle wordSource
 initialState :: GameState
 initialState = GameState
   { targetText  = generateStream
-  , cursorIdx   = 0
+  , typedText   = ""
   , viewOffset  = 0
   }
 
@@ -81,15 +81,25 @@ renderTypingTest w h state = do
   
   -- Extract the slice of text that fits on the current line
   let lineText = take lineWidth $ drop (viewOffset state) (targetText state)
-  let relativeCursor = cursorIdx state - viewOffset state
+  -- Extract the slice of what the user has typed that corresponds to this line
+  let typedLine = drop (viewOffset state) (typedText state)
+  let relativeCursor = length typedLine
   
   -- Draw the text
   forM_ (zip [0..] lineText) $ \(i, char) -> do
     let x = startX + i
     let y = centerY
-    let isCursor = i == relativeCursor
-    let fg = if isCursor then Tb2.colorBlack else Tb2.colorGreen
-    let bg = if isCursor then Tb2.colorGreen else Tb2.colorDefault
+    
+    let (fg, bg) = if i < relativeCursor
+                   then let typedChar = typedLine !! i
+                            isCorrect = typedChar == char
+                        in if isCorrect 
+                           then (Tb2.colorGreen, Tb2.colorDefault)
+                           else (Tb2.colorRed, Tb2.colorDefault)
+                   else if i == relativeCursor
+                        then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
+                        else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
+    
     Tb2.print x y fg bg [char]
 
 -----------------------------------------------------------------------------------------
@@ -101,12 +111,15 @@ handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
 handleEvent evt lineWidth state
   | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
   | otherwise = 
-      let nextIdx = cursorIdx state + 1
+      -- We only advance if the event contains a character
+      let char = Tb2._ch evt
+          newTypedText = typedText state ++ [char]
+          newCursorIdx = length newTypedText
           -- If the cursor moves past the end of the current line, shift the view offset
-          nextOffset = if (nextIdx - viewOffset state) >= lineWidth
+          nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
                        then viewOffset state + lineWidth
                        else viewOffset state
-      in Just state { cursorIdx = nextIdx, viewOffset = nextOffset }
+      in Just state { typedText = newTypedText, viewOffset = nextOffset }
 
 -- The main recursive loop
 appLoop :: GameState -> Termbox2 ()
