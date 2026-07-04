@@ -111,6 +111,14 @@ renderTypingTest w h state = do
 handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
 handleEvent evt lineWidth state
   | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
+  | Tb2._key evt == Tb2.keyBackspace = 
+      let newTypedText = if null (typedText state) then "" else init (typedText state)
+          newCursorIdx = length newTypedText
+          -- If the cursor moves back before the current view, shift the view back
+          nextOffset = if newCursorIdx < viewOffset state
+                       then max 0 (viewOffset state - lineWidth)
+                       else viewOffset state
+      in Just state { typedText = newTypedText, viewOffset = nextOffset }
   | otherwise = 
       -- Convert Word32 code point to Haskell Char
       let char = chr (fromIntegral (Tb2._ch evt))
