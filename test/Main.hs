@@ -97,7 +97,7 @@ renderTypingTest w h state = do
 -----------------------------------------------------------------------------------------
 
 -- Pure logic to handle state transitions
-handleEvent :: Tb2.Event -> Int -> GameState -> Maybe GameState
+handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
 handleEvent evt lineWidth state
   | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
   | otherwise = 
