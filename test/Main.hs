@@ -4,7 +4,7 @@ module Main (main) where
 import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
-import Data.Char (chr)
+import Data.Char (chr, isPrint)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -111,7 +111,7 @@ renderTypingTest w h state = do
 handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
 handleEvent evt lineWidth state
   | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
-  | Tb2._key evt == Tb2.keyBackspace = 
+  | isBackspace evt = 
       let newTypedText = if null (typedText state) then "" else init (typedText state)
           newCursorIdx = length newTypedText
           -- If the cursor moves back before the current view, shift the view back
@@ -120,15 +120,20 @@ handleEvent evt lineWidth state
                        else viewOffset state
       in Just state { typedText = newTypedText, viewOffset = nextOffset }
   | otherwise = 
-      -- Convert Word32 code point to Haskell Char
       let char = chr (fromIntegral (Tb2._ch evt))
-          newTypedText = typedText state ++ [char]
-          newCursorIdx = length newTypedText
-          -- If the cursor moves past the end of the current line, shift the view offset
-          nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
-                       then viewOffset state + lineWidth
-                       else viewOffset state
-      in Just state { typedText = newTypedText, viewOffset = nextOffset }
+      in if isPrint char
+         then let newTypedText = typedText state ++ [char]
+                  newCursorIdx = length newTypedText
+                  -- If the cursor moves past the end of the current line, shift the view offset
+                  nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
+                               then viewOffset state + lineWidth
+                               else viewOffset state
+              in Just state { typedText = newTypedText, viewOffset = nextOffset }
+         else Just state -- Ignore non-printable characters
+  where
+    isBackspace e = Tb2._key e == Tb2.keyBackspace 
+                 || Tb2._ch e == 8 
+                 || Tb2._ch e == 127
 
 -- The main recursive loop
 appLoop :: GameState -> Termbox2 ()
