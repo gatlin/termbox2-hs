@@ -109,9 +109,12 @@ renderTypingTest w h state = do
 
 -- Pure logic to handle state transitions
 handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
-handleEvent evt lineWidth state
-  | Tb2._key evt == Tb2.keyCtrlQ = Nothing -- Signal to halt
-  | isBackspace evt = 
+handleEvent evt lineWidth state = 
+  case (Tb2._key evt, Tb2._ch evt) of
+    (k, _) | k == Tb2.keyCtrlQ -> Nothing -- Signal to halt
+    
+    -- Backspace detection: check special key or ASCII 8/127
+    (k, c) | k == Tb2.keyBackspace || c == 8 || c == 127 -> 
       let newTypedText = if null (typedText state) then "" else init (typedText state)
           newCursorIdx = length newTypedText
           -- If the cursor moves back before the current view, shift the view back
@@ -119,8 +122,10 @@ handleEvent evt lineWidth state
                        then max 0 (viewOffset state - lineWidth)
                        else viewOffset state
       in Just state { typedText = newTypedText, viewOffset = nextOffset }
-  | otherwise = 
-      let char = chr (fromIntegral (Tb2._ch evt))
+    
+    -- Character input: only if it's a printable character
+    (_, c) -> 
+      let char = chr (fromIntegral c)
       in if isPrint char
          then let newTypedText = typedText state ++ [char]
                   newCursorIdx = length newTypedText
@@ -130,10 +135,6 @@ handleEvent evt lineWidth state
                                else viewOffset state
               in Just state { typedText = newTypedText, viewOffset = nextOffset }
          else Just state -- Ignore non-printable characters
-  where
-    isBackspace e = Tb2._key e == Tb2.keyBackspace 
-                 || Tb2._ch e == 8 
-                 || Tb2._ch e == 127
 
 -- The main recursive loop
 appLoop :: GameState -> Termbox2 ()
