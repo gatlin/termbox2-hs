@@ -15,23 +15,23 @@ Transform the current `test/Main.hs` into a fully functional typing test that tr
 ## Phase 1: Backspace & Navigation Refinement (Short Term)
 The goal is to ensure that when a user hits backspace, the cursor moves back and the screen scrolls left if the cursor moves past the current view boundary.
 
-- [ ] **Verify View Offset Logic**: Review the `nextOffset` calculation in `handleEvent` for backspaces. Ensure that if the cursor moves to `viewOffset - 1`, the `viewOffset` decrements by `lineWidth` to keep the cursor visible.
-- [ ] **Edge Case Testing**: Ensure backspacing at the very beginning of the stream (index 0) does not cause negative offsets or crashes.
-- [ ] **Input Validation**: Confirm that all common backspace codes (Special key, ASCII 8, ASCII 127) are captured across different terminal emulators.
+- [x] **Verify View Offset Logic**: Review the `nextOffset` calculation in `handleEvent` for backspaces. Ensure that if the cursor moves to `viewOffset - 1`, the `viewOffset` decrements by `lineWidth` to keep the cursor visible.
+- [x] **Edge Case Testing**: Ensure backspacing at the very beginning of the stream (index 0) does not cause negative offsets or crashes.
+- [x] **Input Validation**: Confirm that all common backspace codes (Special key, ASCII 8, ASCII 127) are captured across different terminal emulators.
 
 ## Phase 2: Metrics Tracking (Long Term)
 Implement the logic to calculate typing speed and accuracy.
 
-- [ ] **Update GameState**:
+- [x] **Update GameState**:
     - Add `startTime :: Maybe UTCTime` to track when the user begins typing.
     - Add `mistakeCount :: Int` to track total errors.
-- [ ] **Implement Timer**:
+- [x] **Implement Timer**:
     - Initialize `startTime` on the first printable character input.
-- [ ] **Track Mistakes**:
+- [x] **Track Mistakes**:
     - Modify `handleEvent` to increment `mistakeCount` whenever a character is typed that does not match the `targetText`.
-- [ ] **WPM Calculation**:
+- [x] **WPM Calculation**:
     - Implement a formula for WPM: `((Total Characters Typed / 5) - Mistakes) / Minutes Elapsed`.
-- [ ] **UI Update**:
+- [x] **UI Update**:
     - Create a new rendering function to display the current WPM and Accuracy percentage in a corner of the screen (e.g., top-right).
 
 ## Phase 3: Polish & UX

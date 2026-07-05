@@ -5,6 +5,7 @@ import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Char (chr, isPrint)
+import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -22,9 +23,11 @@ halt = liftIO $! throwIO Shutdown
 -----------------------------------------------------------------------------------------
 
 data GameState = GameState
-  { targetText  :: String
-  , typedText   :: String
-  , viewOffset  :: Int
+  { targetText   :: String
+  , typedText    :: String
+  , viewOffset   :: Int
+  , startTime    :: Maybe UTCTime
+  , mistakeCount :: Int
   }
 
 -- A static source of words to create our infinite stream
@@ -41,9 +44,11 @@ generateStream = unwords $ cycle wordSource
 
 initialState :: GameState
 initialState = GameState
-  { targetText  = generateStream
-  , typedText   = ""
-  , viewOffset  = 0
+  { targetText   = generateStream
+  , typedText    = ""
+  , viewOffset   = 0
+  , startTime    = Nothing
+  , mistakeCount = 0
   }
 
 -----------------------------------------------------------------------------------------
@@ -103,13 +108,35 @@ renderTypingTest w h state = do
     
     Tb2.print x y fg bg [char]
 
+-- Renders the WPM and Accuracy stats in the top right
+renderStats :: Int -> Int -> UTCTime -> GameState -> Termbox2 ()
+renderStats w h now state = do
+  let border = 2
+  let x = w - 20
+  let y = border
+  
+  let elapsed = maybe 0 (\t -> realToFrac (diffUTCTime now t) / 60) (startTime state)
+  let charsTyped = length (typedText state)
+  
+  -- Net WPM = ((Total Chars / 5) - Mistakes) / Minutes
+  let wpm = if elapsed > 0 
+            then max 0 ((fromIntegral charsTyped / 5.0) - fromIntegral (mistakeCount state)) / elapsed
+            else 0
+            
+  let accuracy = if charsTyped == 0 
+                 then 100 
+                 else (1.0 - (fromIntegral (mistakeCount state) / fromIntegral (max 1 charsTyped))) * 100
+  
+  let statsStr = "WPM: " ++ show (round wpm :: Int) ++ " | Acc: " ++ show (round accuracy :: Int) ++ "%"
+  Tb2.print x y Tb2.colorCyan Tb2.colorDefault statsStr
+
 -----------------------------------------------------------------------------------------
 -- Application Logic
 -----------------------------------------------------------------------------------------
 
 -- Pure logic to handle state transitions
-handleEvent :: Tb2.Tb2Event -> Int -> GameState -> Maybe GameState
-handleEvent evt lineWidth state = 
+handleEvent :: Tb2.Tb2Event -> Int -> UTCTime -> GameState -> Maybe GameState
+handleEvent evt lineWidth now state = 
   case (Tb2._key evt, Tb2._ch evt) of
     (k, _) | k == Tb2.keyCtrlQ -> Nothing -- Signal to halt
     
@@ -127,13 +154,25 @@ handleEvent evt lineWidth state =
     (_, c) -> 
       let char = chr (fromIntegral c)
       in if isPrint char
-         then let newTypedText = typedText state ++ [char]
+         then let currentIdx = length (typedText state)
+                  isCorrect = char == (targetText state !! currentIdx)
+                  
+                  newTypedText = typedText state ++ [char]
+                  newMistakes = if isCorrect then mistakeCount state else mistakeCount state + 1
+                  newStartTime = case startTime state of
+                                   Nothing -> Just now
+                                   Just t  -> Just t
+                                   
                   newCursorIdx = length newTypedText
                   -- If the cursor moves past the end of the current line, shift the view offset
                   nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
                                then viewOffset state + lineWidth
                                else viewOffset state
-              in Just state { typedText = newTypedText, viewOffset = nextOffset }
+              in Just state { typedText = newTypedText
+                            , viewOffset = nextOffset
+                            , startTime = newStartTime
+                            , mistakeCount = newMistakes 
+                            }
          else Just state -- Ignore non-printable characters
 
 -- The main recursive loop
@@ -141,11 +180,13 @@ appLoop :: GameState -> Termbox2 ()
 appLoop state = do
   w <- Tb2.width
   h <- Tb2.height
+  now <- liftIO getCurrentTime
   
   -- 1. Render
   Tb2.clear
   screenBorder 2
   renderTypingTest w h state
+  renderStats w h now state
   Tb2.present
   
   -- 2. Poll
@@ -155,7 +196,7 @@ appLoop state = do
     Just e  -> do
       -- 3. Update State
       let lineWidth = w - 4 -- matching the border of 2
-      case handleEvent e lineWidth state of
+      case handleEvent e lineWidth now state of
         Nothing -> return () -- Exit loop
         Just newState -> appLoop newState
 
