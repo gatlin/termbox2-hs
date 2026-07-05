@@ -74,7 +74,7 @@ drawRect left top w h = do
     setCell left i 0x2502
     setCell right i 0x2502
 
-screenBorder :: Int -> Int -> Termbox2 ()
+screenBorder :: Int -> Int -> Int -> Termbox2 ()
 screenBorder border w h = do
   drawRect border border (w-2*border) (h-2*border)
 
