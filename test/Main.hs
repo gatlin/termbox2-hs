@@ -1,9 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 module Main (main) where
 
-import Control.Concurrent (threadDelay, forkIO, killThread)
-import Control.Concurrent.STM (TChan, newTChanIO, tryReadTChan, writeTChan, atomically)
-import Control.Exception (Exception(..), bracket_, throwIO, finally)
+import Control.Concurrent (threadDelay)
+import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when, forever)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Char (chr, isPrint)
@@ -187,10 +186,10 @@ updateState now mEvent state =
         _ -> stateAfterEvent
     _ -> stateAfterEvent
 
-appLoop :: TChan Tb2.Tb2Event -> GameState -> Termbox2 ()
-appLoop chan state = do
+appLoop :: GameState -> Termbox2 ()
+appLoop state = do
   now <- liftIO getCurrentTime
-  mEvent <- liftIO $ atomically $ tryReadTChan chan
+  mEvent <- liftIO Tb2.tryPollEvent
   
   let newState = updateState now mEvent state
   (w, h) <- Tb2.size
@@ -204,13 +203,7 @@ appLoop chan state = do
   Tb2.sync
   
   liftIO $ threadDelay 10000 -- 10ms
-  appLoop chan newState
+  appLoop newState
 
 main :: IO ()
-main = do
-  chan <- newTChanIO
-  pollThread <- forkIO $ forever $ do
-    ev <- Tb2.pollEvent
-    atomically $ writeTChan chan ev
-  
-  runTermbox2 (appLoop chan initialState) `finally` killThread pollThread
+main = runTermbox2 (appLoop initialState)
