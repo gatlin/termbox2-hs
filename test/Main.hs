@@ -10,15 +10,6 @@ import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
 -----------------------------------------------------------------------------------------
--- supports graceful exits
------------------------------------------------------------------------------------------
-
-data Shutdown = Shutdown deriving (Show)
-instance Exception Shutdown
-halt :: MonadIO m => m a
-halt = liftIO $! throwIO Shutdown
-
------------------------------------------------------------------------------------------
 -- Data Types & State
 -----------------------------------------------------------------------------------------
 
