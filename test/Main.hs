@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Main (main) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
@@ -169,10 +170,10 @@ renderTypingTest w h now state = do
 renderStats :: Int -> Int -> UTCTime -> GameState -> Termbox2 ()
 renderStats w h now state = do
   let border = 2
-  let x = w - 20
   let y = border
   
   let elapsed = maybe 0 (\t -> realToFrac (diffUTCTime now t) / 60) (startTime state)
+  let remaining = maybe 0 (\s -> max 0 (gameDuration - diffUTCTime now s)) (startTime state)
   let charsTyped = length (typedText state)
   
   -- Net WPM = ((Total Chars / 5) - Mistakes) / Minutes
@@ -184,7 +185,8 @@ renderStats w h now state = do
                  then 100 
                  else (1.0 - (fromIntegral (mistakeCount state) / fromIntegral (max 1 charsTyped))) * 100
   
-  let statsStr = "WPM: " ++ show (round wpm :: Int) ++ " | Acc: " ++ show (round accuracy :: Int) ++ "%"
+  let statsStr = "Time: " ++ show (round remaining :: Int) ++ "s | WPM: " ++ show (round wpm :: Int) ++ " | Acc: " ++ show (round accuracy :: Int) ++ "%"
+  let x = w - length statsStr - border
   Tb2.print x y Tb2.colorCyan Tb2.colorDefault statsStr
 
 -----------------------------------------------------------------------------------------
@@ -241,7 +243,7 @@ handleEvent evt lineWidth now state =
                   newFlash = if isCorrect 
                              then flashUntil state 
                              else Just (addUTCTime 0.1 now)
-                                   
+                                 
                   newCursorIdx = length newTypedText
                   -- If the cursor moves past the end of the current line, shift the view offset
                   nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
@@ -279,7 +281,9 @@ appLoop state = do
   -- 2. Poll
   evt <- Tb2.pollEvent
   case evt of
-    Nothing -> appLoop state'
+    Nothing -> do
+      liftIO $ threadDelay 10000 -- Prevent CPU hammering in non-blocking poll
+      appLoop state'
     Just e  -> do
       -- 3. Update State
       let lineWidth = w - 4 -- matching the border of 2
