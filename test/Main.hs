@@ -138,34 +138,37 @@ renderTypingTest w h now state = do
   let lineText = take lineWidth $ drop (viewOffset state) (targetText state)
   -- Extract the slice of what the user has typed that corresponds to this line
   let typedLine = drop (viewOffset state) (typedText state)
-  let relativeCursor = length typedLine
+  let cursorPos = length (typedText state) - viewOffset state
+  
+  -- Zip lineText with typedLine to avoid !! and handle the cursor correctly
+  let lineWithTyped = zip lineText (map Just typedLine ++ repeat Nothing)
   
   -- Draw the text
-  forM_ (zip [0..] lineText) $ \(i, char) -> do
+  forM_ (zip [0..] lineWithTyped) $ \(i, (char, mTypedChar)) -> do
     let x = startX + i
     let y = centerY
     
     let (fg, bg) = if isFlashing
                    then -- Flash colors: Red background, White text
-                        if i < relativeCursor
-                        then let typedChar = typedLine !! i
-                                isCorrect = typedChar == char
-                             in if isCorrect 
-                               then (Tb2.colorWhite, Tb2.colorRed)
-                               else (Tb2.colorBlack, Tb2.colorRed)
-                        else if i == relativeCursor
-                             then (Tb2.colorBlack, Tb2.colorWhite) -- Cursor
-                             else (Tb2.colorWhite, Tb2.colorRed)
+                        case mTypedChar of
+                          Just typedChar -> 
+                            if typedChar == char 
+                            then (Tb2.colorWhite, Tb2.colorRed)
+                            else (Tb2.colorBlack, Tb2.colorRed)
+                          Nothing -> 
+                            if i == cursorPos
+                            then (Tb2.colorBlack, Tb2.colorWhite) -- Cursor
+                            else (Tb2.colorWhite, Tb2.colorRed)
                    else -- Normal colors
-                        if i < relativeCursor
-                        then let typedChar = typedLine !! i
-                                 isCorrect = typedChar == char
-                             in if isCorrect 
-                               then (Tb2.colorGreen, Tb2.colorDefault)
-                               else (Tb2.colorRed, Tb2.colorDefault)
-                        else if i == relativeCursor
-                             then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
-                             else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
+                        case mTypedChar of
+                          Just typedChar -> 
+                            if typedChar == char 
+                            then (Tb2.colorGreen, Tb2.colorDefault)
+                            else (Tb2.colorRed, Tb2.colorDefault)
+                          Nothing -> 
+                            if i == cursorPos
+                            then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
+                            else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
     
     Tb2.print x y fg bg [char]
 
