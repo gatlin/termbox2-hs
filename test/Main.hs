@@ -100,9 +100,9 @@ renderSummaryScreen w h state = do
   let startX = (w - 30) `div` 2
   
   -- Calculate final stats
-  let start = maybe 0 id (startTime state)
-  let end = maybe 0 id (endTime state)
-  let elapsed = realToFrac (diffUTCTime end start) / 60
+  let elapsed = case (startTime state, endTime state) of
+                  (Just s, Just e) -> realToFrac (diffUTCTime e s) / 60
+                  _               -> 0
   let charsTyped = length (typedText state)
   
   let wpm = if elapsed > 0 
@@ -149,7 +149,7 @@ renderTypingTest w h now state = do
                    then -- Flash colors: Red background, White text
                         if i < relativeCursor
                         then let typedChar = typedLine !! i
-                                 isCorrect = typedChar == char
+                                isCorrect = typedChar == char
                              in if isCorrect 
                                then (Tb2.colorWhite, Tb2.colorRed)
                                else (Tb2.colorBlack, Tb2.colorRed)
@@ -246,10 +246,10 @@ handleEvent evt lineWidth now state =
               in if newCursorIdx >= 100 -- Win condition: 100 characters
                  then Just state { status = Finished, endTime = Just now }
                  else Just state { typedText = newTypedText
-                                , viewOffset = nextOffset
-                                , mistakeCount = newMistakes 
-                                , flashUntil = newFlash
-                                }
+                               , viewOffset = nextOffset
+                               , mistakeCount = newMistakes 
+                               , flashUntil = newFlash
+                               }
          else Just state -- Ignore non-printable characters
 
 -- The main recursive loop
