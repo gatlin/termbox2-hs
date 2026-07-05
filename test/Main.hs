@@ -22,13 +22,14 @@ halt = liftIO $! throwIO Shutdown
 -- Data Types & State
 -----------------------------------------------------------------------------------------
 
-data GameStatus = Waiting | Typing deriving (Eq, Show)
+data GameStatus = Waiting | Typing | Finished deriving (Eq, Show)
 
 data GameState = GameState
   { targetText   :: String
   , typedText    :: String
   , viewOffset   :: Int
   , startTime    :: Maybe UTCTime
+  , endTime      :: Maybe UTCTime
   , mistakeCount :: Int
   , status       :: GameStatus
   , flashUntil   :: Maybe UTCTime
@@ -52,6 +53,7 @@ initialState = GameState
   , typedText    = ""
   , viewOffset   = 0
   , startTime    = Nothing
+  , endTime      = Nothing
   , mistakeCount = 0
   , status       = Waiting
   , flashUntil   = Nothing
@@ -91,6 +93,34 @@ renderStartScreen w h = do
   let y = h `div` 2
   Tb2.print x y Tb2.colorCyan Tb2.colorDefault msg
 
+-- Renders the final summary screen
+renderSummaryScreen :: Int -> Int -> GameState -> Termbox2 ()
+renderSummaryScreen w h state = do
+  let centerY = h `div` 2
+  let startX = (w - 30) `div` 2
+  
+  -- Calculate final stats
+  let start = maybe 0 id (startTime state)
+  let end = maybe 0 id (endTime state)
+  let elapsed = realToFrac (diffUTCTime end start) / 60
+  let charsTyped = length (typedText state)
+  
+  let wpm = if elapsed > 0 
+            then max 0 ((fromIntegral charsTyped / 5.0) - fromIntegral (mistakeCount state)) / elapsed
+            else 0
+            
+  let accuracy = if charsTyped == 0 
+                 then 100 
+                 else (1.0 - (fromIntegral (mistakeCount state) / fromIntegral (max 1 charsTyped))) * 100
+  
+  let title = "TEST COMPLETE!"
+  let stats = "WPM: " ++ show (round wpm :: Int) ++ " | Acc: " ++ show (round accuracy :: Int) ++ "%"
+  let prompt = "Press any key to try again"
+  
+  Tb2.print ((w - length title) `div` 2) (centerY - 2) Tb2.colorYellow Tb2.colorDefault title
+  Tb2.print ((w - length stats) `div` 2) centerY Tb2.colorWhite Tb2.colorDefault stats
+  Tb2.print ((w - length prompt) `div` 2) (centerY + 2) Tb2.colorCyan Tb2.colorDefault prompt
+
 -- Renders the typing test line in the middle of the screen
 renderTypingTest :: Int -> Int -> UTCTime -> GameState -> Termbox2 ()
 renderTypingTest w h now state = do
@@ -119,20 +149,20 @@ renderTypingTest w h now state = do
                    then -- Flash colors: Red background, White text
                         if i < relativeCursor
                         then let typedChar = typedLine !! i
-                                 isCorrect = typedChar == char
+                               isCorrect = typedChar == char
                              in if isCorrect 
-                                then (Tb2.colorWhite, Tb2.colorRed)
-                                else (Tb2.colorBlack, Tb2.colorRed)
+                               then (Tb2.colorWhite, Tb2.colorRed)
+                               else (Tb2.colorBlack, Tb2.colorRed)
                         else if i == relativeCursor
                              then (Tb2.colorBlack, Tb2.colorWhite) -- Cursor
                              else (Tb2.colorWhite, Tb2.colorRed)
                    else -- Normal colors
                         if i < relativeCursor
                         then let typedChar = typedLine !! i
-                                 isCorrect = typedChar == char
+                               isCorrect = typedChar == char
                              in if isCorrect 
-                                then (Tb2.colorGreen, Tb2.colorDefault)
-                                else (Tb2.colorRed, Tb2.colorDefault)
+                               then (Tb2.colorGreen, Tb2.colorDefault)
+                               else (Tb2.colorRed, Tb2.colorDefault)
                         else if i == relativeCursor
                              then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
                              else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
@@ -175,6 +205,10 @@ handleEvent evt lineWidth now state =
     (_, _) | status state == Waiting -> 
       Just state { status = Typing, startTime = Just now }
     
+    -- If we are finished, any key resets the game
+    (_, _) | status state == Finished ->
+      Just initialState { startTime = Nothing } -- Reset to initial state
+    
     -- Now we handle the Typing state
     (k, c) | k == Tb2.keyBackspace || c == 8 || c == 127 -> 
       let newTypedText = if null (typedText state) then "" else init (typedText state)
@@ -184,6 +218,10 @@ handleEvent evt lineWidth now state =
                        then max 0 (viewOffset state - lineWidth)
                        else viewOffset state
       in Just state { typedText = newTypedText, viewOffset = nextOffset }
+    
+    -- End test manually via Enter
+    (k, c) | k == Tb2.keyEnter || c == 13 ->
+      Just state { status = Finished, endTime = Just now }
     
     -- Character input: only if it's a printable character
     (_, c) -> 
@@ -205,11 +243,13 @@ handleEvent evt lineWidth now state =
                   nextOffset = if (newCursorIdx - viewOffset state) >= lineWidth
                                then viewOffset state + lineWidth
                                else viewOffset state
-              in Just state { typedText = newTypedText
-                            , viewOffset = nextOffset
-                            , mistakeCount = newMistakes 
-                            , flashUntil = newFlash
-                            }
+              in if newCursorIdx >= 100 -- Win condition: 100 characters
+                 then Just state { status = Finished, endTime = Just now }
+                 else Just state { typedText = newTypedText
+                                , viewOffset = nextOffset
+                                , mistakeCount = newMistakes 
+                                , flashUntil = newFlash
+                                }
          else Just state -- Ignore non-printable characters
 
 -- The main recursive loop
@@ -222,11 +262,12 @@ appLoop state = do
   -- 1. Render
   Tb2.clear
   screenBorder 2
-  if status state == Waiting
-    then renderStartScreen w h
-    else do
+  case status state of
+    Waiting -> renderStartScreen w h
+    Typing  -> do
       renderTypingTest w h now state
       renderStats w h now state
+    Finished -> renderSummaryScreen w h state
   Tb2.present
   
   -- 2. Poll
