@@ -5,7 +5,7 @@ import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Char (chr, isPrint)
-import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, addUTCTime)
+import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, addUTCTime, NominalDiffTime)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -25,6 +25,10 @@ data GameState = GameState
   , status       :: GameStatus
   , flashUntil   :: Maybe UTCTime
   }
+
+-- Game configuration
+gameDuration :: NominalDiffTime
+gameDuration = 30 -- seconds
 
 -- A static source of words to create our infinite stream
 wordSource :: [String]
@@ -70,10 +74,8 @@ drawRect left top w h = do
     setCell left i 0x2502
     setCell right i 0x2502
 
-screenBorder :: Int -> Termbox2 ()
-screenBorder border = do
-  w <- Tb2.width
-  h <- Tb2.height
+screenBorder :: Int -> Int -> Termbox2 ()
+screenBorder border w h = do
   drawRect border border (w-2*border) (h-2*border)
 
 -- Renders the "Press any key to start" screen
@@ -189,6 +191,14 @@ renderStats w h now state = do
 -- Application Logic
 -----------------------------------------------------------------------------------------
 
+-- Helper to check if the game timer has expired
+checkTimer :: UTCTime -> GameState -> GameState
+checkTimer now state =
+  case (status state, startTime state) of
+    (Typing, Just s) | diffUTCTime now s >= gameDuration ->
+      state { status = Finished, endTime = Just now }
+    _ -> state
+
 -- Pure logic to handle state transitions
 handleEvent :: Tb2.Tb2Event -> Int -> UTCTime -> GameState -> Maybe GameState
 handleEvent evt lineWidth now state = 
@@ -249,29 +259,31 @@ handleEvent evt lineWidth now state =
 -- The main recursive loop
 appLoop :: GameState -> Termbox2 ()
 appLoop state = do
+  now <- liftIO getCurrentTime
+  let state' = checkTimer now state
+  
   w <- Tb2.width
   h <- Tb2.height
-  now <- liftIO getCurrentTime
   
   -- 1. Render
   Tb2.clear
-  screenBorder 2
-  case status state of
+  screenBorder 2 w h
+  case status state' of
     Waiting -> renderStartScreen w h
     Typing  -> do
-      renderTypingTest w h now state
-      renderStats w h now state
-    Finished -> renderSummaryScreen w h state
+      renderTypingTest w h now state'
+      renderStats w h now state'
+    Finished -> renderSummaryScreen w h state'
   Tb2.present
   
   -- 2. Poll
   evt <- Tb2.pollEvent
   case evt of
-    Nothing -> appLoop state
+    Nothing -> appLoop state'
     Just e  -> do
       -- 3. Update State
       let lineWidth = w - 4 -- matching the border of 2
-      case handleEvent e lineWidth now state of
+      case handleEvent e lineWidth now state' of
         Nothing -> return () -- Exit loop
         Just newState -> appLoop newState
 
