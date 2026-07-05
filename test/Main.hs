@@ -22,12 +22,15 @@ halt = liftIO $! throwIO Shutdown
 -- Data Types & State
 -----------------------------------------------------------------------------------------
 
+data GameStatus = Waiting | Typing deriving (Eq, Show)
+
 data GameState = GameState
   { targetText   :: String
   , typedText    :: String
   , viewOffset   :: Int
   , startTime    :: Maybe UTCTime
   , mistakeCount :: Int
+  , status       :: GameStatus
   }
 
 -- A static source of words to create our infinite stream
@@ -49,6 +52,7 @@ initialState = GameState
   , viewOffset   = 0
   , startTime    = Nothing
   , mistakeCount = 0
+  , status       = Waiting
   }
 
 -----------------------------------------------------------------------------------------
@@ -76,6 +80,14 @@ screenBorder border = do
   w <- Tb2.width
   h <- Tb2.height
   drawRect border border (w-2*border) (h-2*border)
+
+-- Renders the "Press any key to start" screen
+renderStartScreen :: Int -> Int -> Termbox2 ()
+renderStartScreen w h = do
+  let msg = "Press any key to start typing!"
+  let x = (w - length msg) `div` 2
+  let y = h `div` 2
+  Tb2.print x y Tb2.colorCyan Tb2.colorDefault msg
 
 -- Renders the typing test line in the middle of the screen
 renderTypingTest :: Int -> Int -> GameState -> Termbox2 ()
@@ -140,7 +152,11 @@ handleEvent evt lineWidth now state =
   case (Tb2._key evt, Tb2._ch evt) of
     (k, _) | k == Tb2.keyCtrlQ -> Nothing -- Signal to halt
     
-    -- Backspace detection: check special key or ASCII 8/127
+    -- If we are waiting, any key starts the game
+    (_, _) | status state == Waiting -> 
+      Just state { status = Typing, startTime = Just now }
+    
+    -- Now we handle the Typing state
     (k, c) | k == Tb2.keyBackspace || c == 8 || c == 127 -> 
       let newTypedText = if null (typedText state) then "" else init (typedText state)
           newCursorIdx = length newTypedText
@@ -159,9 +175,6 @@ handleEvent evt lineWidth now state =
                   
                   newTypedText = typedText state ++ [char]
                   newMistakes = if isCorrect then mistakeCount state else mistakeCount state + 1
-                  newStartTime = case startTime state of
-                                   Nothing -> Just now
-                                   Just t  -> Just t
                                    
                   newCursorIdx = length newTypedText
                   -- If the cursor moves past the end of the current line, shift the view offset
@@ -170,7 +183,6 @@ handleEvent evt lineWidth now state =
                                else viewOffset state
               in Just state { typedText = newTypedText
                             , viewOffset = nextOffset
-                            , startTime = newStartTime
                             , mistakeCount = newMistakes 
                             }
          else Just state -- Ignore non-printable characters
@@ -185,8 +197,11 @@ appLoop state = do
   -- 1. Render
   Tb2.clear
   screenBorder 2
-  renderTypingTest w h state
-  renderStats w h now state
+  if status state == Waiting
+    then renderStartScreen w h
+    else do
+      renderTypingTest w h state
+      renderStats w h now state
   Tb2.present
   
   -- 2. Poll

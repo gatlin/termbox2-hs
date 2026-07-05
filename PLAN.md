@@ -35,7 +35,7 @@ Implement the logic to calculate typing speed and accuracy.
     - Create a new rendering function to display the current WPM and Accuracy percentage in a corner of the screen (e.g., top-right).
 
 ## Phase 3: Polish & UX
-- [ ] **Start/Stop States**: Add a "Press any key to start" screen so the timer doesn't start immediately upon launch.
+- [x] **Start/Stop States**: Add a "Press any key to start" screen so the timer doesn't start immediately upon launch.
 - [ ] **Visual Feedback**: Add a subtle animation or flash when a mistake is made.
 - [ ] **Completion Logic**: Define a "win condition" (e.g., typing a certain number of words) or a way to stop the test and see a final summary.
 
