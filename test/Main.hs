@@ -5,7 +5,7 @@ import Control.Exception (Exception(..), bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Char (chr, isPrint)
-import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, addUTCTime)
 import Termbox2 (Termbox2, runTermbox2)
 import qualified Termbox2 as Tb2
 
@@ -31,6 +31,7 @@ data GameState = GameState
   , startTime    :: Maybe UTCTime
   , mistakeCount :: Int
   , status       :: GameStatus
+  , flashUntil   :: Maybe UTCTime
   }
 
 -- A static source of words to create our infinite stream
@@ -53,6 +54,7 @@ initialState = GameState
   , startTime    = Nothing
   , mistakeCount = 0
   , status       = Waiting
+  , flashUntil   = Nothing
   }
 
 -----------------------------------------------------------------------------------------
@@ -90,12 +92,17 @@ renderStartScreen w h = do
   Tb2.print x y Tb2.colorCyan Tb2.colorDefault msg
 
 -- Renders the typing test line in the middle of the screen
-renderTypingTest :: Int -> Int -> GameState -> Termbox2 ()
-renderTypingTest w h state = do
+renderTypingTest :: Int -> Int -> UTCTime -> GameState -> Termbox2 ()
+renderTypingTest w h now state = do
   let border = 2
   let lineWidth = w - 2 * border
   let centerY = h `div` 2
   let startX = border
+  
+  -- Determine if we are currently in a "mistake flash" state
+  let isFlashing = case flashUntil state of
+                     Just t  -> now < t
+                     Nothing -> False
   
   -- Extract the slice of text that fits on the current line
   let lineText = take lineWidth $ drop (viewOffset state) (targetText state)
@@ -108,15 +115,27 @@ renderTypingTest w h state = do
     let x = startX + i
     let y = centerY
     
-    let (fg, bg) = if i < relativeCursor
-                   then let typedChar = typedLine !! i
-                            isCorrect = typedChar == char
-                        in if isCorrect 
-                           then (Tb2.colorGreen, Tb2.colorDefault)
-                           else (Tb2.colorRed, Tb2.colorDefault)
-                   else if i == relativeCursor
-                        then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
-                        else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
+    let (fg, bg) = if isFlashing
+                   then -- Flash colors: Red background, White text
+                        if i < relativeCursor
+                        then let typedChar = typedLine !! i
+                                 isCorrect = typedChar == char
+                             in if isCorrect 
+                                then (Tb2.colorWhite, Tb2.colorRed)
+                                else (Tb2.colorBlack, Tb2.colorRed)
+                        else if i == relativeCursor
+                             then (Tb2.colorBlack, Tb2.colorWhite) -- Cursor
+                             else (Tb2.colorWhite, Tb2.colorRed)
+                   else -- Normal colors
+                        if i < relativeCursor
+                        then let typedChar = typedLine !! i
+                                 isCorrect = typedChar == char
+                             in if isCorrect 
+                                then (Tb2.colorGreen, Tb2.colorDefault)
+                                else (Tb2.colorRed, Tb2.colorDefault)
+                        else if i == relativeCursor
+                             then (Tb2.colorBlack, Tb2.colorGreen) -- Cursor
+                             else (Tb2.colorWhite, Tb2.colorDefault) -- Upcoming
     
     Tb2.print x y fg bg [char]
 
@@ -175,6 +194,11 @@ handleEvent evt lineWidth now state =
                   
                   newTypedText = typedText state ++ [char]
                   newMistakes = if isCorrect then mistakeCount state else mistakeCount state + 1
+                  
+                  -- Trigger a flash if the character is incorrect
+                  newFlash = if isCorrect 
+                             then flashUntil state 
+                             else Just (addUTCTime 0.1 now)
                                    
                   newCursorIdx = length newTypedText
                   -- If the cursor moves past the end of the current line, shift the view offset
@@ -184,6 +208,7 @@ handleEvent evt lineWidth now state =
               in Just state { typedText = newTypedText
                             , viewOffset = nextOffset
                             , mistakeCount = newMistakes 
+                            , flashUntil = newFlash
                             }
          else Just state -- Ignore non-printable characters
 
@@ -200,7 +225,7 @@ appLoop state = do
   if status state == Waiting
     then renderStartScreen w h
     else do
-      renderTypingTest w h state
+      renderTypingTest w h now state
       renderStats w h now state
   Tb2.present
   

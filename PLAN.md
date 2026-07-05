@@ -36,7 +36,7 @@ Implement the logic to calculate typing speed and accuracy.
 
 ## Phase 3: Polish & UX
 - [x] **Start/Stop States**: Add a "Press any key to start" screen so the timer doesn't start immediately upon launch.
-- [ ] **Visual Feedback**: Add a subtle animation or flash when a mistake is made.
+- [x] **Visual Feedback**: Add a subtle animation or flash when a mistake is made.
 - [ ] **Completion Logic**: Define a "win condition" (e.g., typing a certain number of words) or a way to stop the test and see a final summary.
 
 ---
