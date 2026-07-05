@@ -92,7 +92,6 @@ renderStartScreen w h = do
 renderSummaryScreen :: Int -> Int -> GameState -> Termbox2 ()
 renderSummaryScreen w h state = do
   let centerY = h `div` 2
-  let startX = (w - 30) `div` 2
   
   -- Calculate final stats
   let elapsed = case (startTime state, endTime state) of
@@ -114,4 +113,104 @@ renderSummaryScreen w h state = do
   
   Tb2.print ((w - length title) `div` 2) (centerY - 2) Tb2.colorYellow Tb2.colorDefault title
   Tb2.print ((w - length stats) `div` 2) centerY Tb2.colorWhite Tb2.colorDefault stats
-  Tb2.print ( ( la l l l l l l l l l l l l l l l l l l l l l l l l l l l l l l l
+  Tb2.print ((w - length prompt) `div` 2) (centerY + 2) Tb2.colorCyan Tb2.colorDefault prompt
+
+-- Renders the active typing screen
+renderGameScreen :: Int -> Int -> UTCTime -> GameState -> Termbox2 ()
+renderGameScreen w h now state = do
+  let target = targetText state
+  let typed = typedText state
+  let offset = viewOffset state
+  let visibleLen = w - 4
+  
+  -- 1. Draw the target text (background)
+  let displayTarget = take visibleLen (drop offset target)
+  Tb2.print 2 2 Tb2.colorWhite Tb2.colorDefault displayTarget
+  
+  -- 2. Draw the typed text overlay
+  let typedLen = length typed
+  let typedVisible = take visibleLen (drop offset typed)
+  let typedLenInView = length typedVisible
+  
+  forM_ (zip [0..] typedVisible) $ \(i, char) -> do
+    let targetChar = target !! (offset + i)
+    let color = if char == targetChar then Tb2.colorGreen else Tb2.colorRed
+    Tb2.print (2 + i) 2 color Tb2.colorDefault [char]
+
+  -- 3. Draw cursor
+  when (typedLen >= offset && typedLen < offset + visibleLen) $ do
+    let cursorX = 2 + (typedLen - offset)
+    Tb2.setCell cursorX 2 0x2588 Tb2.colorCyan Tb2.colorDefault
+
+  -- 4. Draw Timer
+  let timeRemaining = case startTime state of
+        Just s -> max 0 (gameDuration - diffUTCTime now s)
+        Nothing -> gameDuration
+  let timerMsg = "Time Remaining: " ++ show (round timeRemaining :: Int) ++ "s"
+  Tb2.print ((w - length timerMsg) `div` 2) 1 Tb2.colorYellow Tb2.colorDefault timerMsg
+
+---------------------------------------------------------------------------------------
+-- Game Logic
+-----------------------------------------------------------------------------------------
+
+handleEvent :: Tb2.Tb2Event -> GameState -> UTCTime -> GameState
+handleEvent event state now = case (status state, event) of
+  (Waiting, Tb2.EventKey Tb2.EventKeyChar c _) -> 
+    state { status = Typing, startTime = Just now }
+    
+  (Typing, Tb2.EventKey Tb2.EventKeyChar c _) ->
+    let currentTyped = typedText state
+        targetChar = targetText state !! length currentTyped
+        isMistake = c /= targetChar
+        newMistakes = if isMistake then mistakeCount state + 1 else mistakeCount state
+        newTyped = currentTyped ++ [c]
+        -- Update offset for scrolling
+        newOffset = if length newTyped > (viewOffset state + (100 - 4)) -- simplified width
+                    then viewOffset state + 1 else viewOffset state
+    in state { typedText = newTyped, mistakeCount = newMistakes, viewOffset = newOffset }
+    
+  (Finished, Tb2.EventKey _ _ _) -> 
+    initialState
+    
+  _ -> state
+
+updateState :: UTCTime -> Maybe Tb2.Tb2Event -> GameState -> GameState
+updateState now mEvent state =
+  let stateAfterEvent = case mEvent of
+        Just ev -> handleEvent ev state now
+        Nothing -> state
+  in case status stateAfterEvent of
+    Typing -> 
+      case startTime stateAfterEvent of
+        Just s | diffUTCTime now s >= gameDuration -> 
+          stateAfterEvent { status = Finished, endTime = Just now }
+        _ -> stateAfterEvent
+    _ -> stateAfterEvent
+
+appLoop :: TChan Tb2.Tb2Event -> GameState -> Termbox2 ()
+appLoop chan state = do
+  now <- liftIO getCurrentTime
+  mEvent <- liftIO $ atomically $ tryReadTChan chan
+  
+  let newState = updateState now mEvent state
+  (w, h) <- Tb2.size
+  
+  Tb2.clear
+  screenBorder 1 w h
+  case status newState of
+    Waiting -> renderStartScreen w h
+    Typing  -> renderGameScreen w h now newState
+    Finished -> renderSummaryScreen w h newState
+  Tb2.sync
+  
+  liftIO $ threadDelay 10000 -- 10ms
+  appLoop chan newState
+
+main :: IO ()
+main = do
+  chan <- newTChanIO
+  pollThread <- forkIO $ forever $ do
+    ev <- Tb2.pollEvent
+    atomically $ writeTChan chan ev
+  
+  runTermbox2 (appLoop chan initialState) `finally` killThread pollThread
