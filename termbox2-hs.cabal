@@ -17,7 +17,7 @@ version:            0.4.0.0
 license:            AGPL-3.0-or-later
 license-file:       LICENSE
 synopsis:           Bindings to termbox2
-author:             Gatlin Cheyenne Johnson
+author: Gatlin Cheyenne Johnson
 maintainer:         gatlin@niltag.net
 category:           User Interfaces
 build-type:         Simple
@@ -53,4 +53,5 @@ test-suite termbox2-hs-test
 
     build-depends:
         base,
-        termbox2-hs
+        termbox2-hs,
+        time
