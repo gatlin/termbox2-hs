@@ -149,7 +149,7 @@ renderTypingTest w h now state = do
                    then -- Flash colors: Red background, White text
                         if i < relativeCursor
                         then let typedChar = typedLine !! i
-                               isCorrect = typedChar == char
+                                 isCorrect = typedChar == char
                              in if isCorrect 
                                then (Tb2.colorWhite, Tb2.colorRed)
                                else (Tb2.colorBlack, Tb2.colorRed)
@@ -159,7 +159,7 @@ renderTypingTest w h now state = do
                    else -- Normal colors
                         if i < relativeCursor
                         then let typedChar = typedLine !! i
-                               isCorrect = typedChar == char
+                                 isCorrect = typedChar == char
                              in if isCorrect 
                                then (Tb2.colorGreen, Tb2.colorDefault)
                                else (Tb2.colorRed, Tb2.colorDefault)
