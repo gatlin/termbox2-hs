@@ -82,7 +82,7 @@ screenBorder border w h = do
 -- Renders the "Press any key to start" screen
 renderStartScreen :: Int -> Int -> Termbox2 ()
 renderStartScreen w h = do
-  let msg = "Press any key to start typing!"
+  let msg = "Press any key to start the typing!"
   let x = (w - length msg) `div` 2
   let y = h `div` 2
   Tb2.print x y Tb2.colorCyan Tb2.colorDefault msg
@@ -187,7 +187,8 @@ updateState w now mEvent state =
 
 appLoop :: GameState -> Termbox2 ()
 appLoop state = do
-  (w, h) <- Tb2.termSize
+  w <- Tb2.width
+  h <- Tb2.height
   now <- liftIO getCurrentTime
   mEvent <- liftIO Tb2.pollEvent
   
@@ -199,7 +200,7 @@ appLoop state = do
     Waiting -> renderStartScreen w h
     Typing  -> renderGameScreen w h now newState
     Finished -> renderSummaryScreen w h newState
-  Tb2.sync
+  Tb2.present
   
   liftIO $ threadDelay 10000 -- 10ms
   appLoop newState
