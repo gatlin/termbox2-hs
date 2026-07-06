@@ -136,7 +136,7 @@ renderGameScreen w h now state = do
     Tb2.print (2 + i) 2 color Tb2.colorDefault [char]
 
   -- 3. Draw cursor
-  when (typedLen >= offset && typedLen < offset + visibleLen) $ do
+  when (typedLen >= offset && typedLen <= offset + visibleLen) $ do
     let cursorX = 2 + (typedLen - offset)
     Tb2.setCell cursorX 2 0x2588 Tb2.colorCyan Tb2.colorDefault
 
@@ -151,8 +151,8 @@ renderGameScreen w h now state = do
 -- Game Logic
 -----------------------------------------------------------------------------------------
 
-handleEvent :: Tb2.TbEvent -> GameState -> UTCTime -> GameState
-handleEvent event state now = case (status state, event) of
+handleEvent :: Int -> Tb2.TbEvent -> GameState -> UTCTime -> GameState
+handleEvent w event state now = case (status state, event) of
   (Waiting, Tb2.TbEventKey (Tb2.TbKeyChar c)) -> 
     state { status = Typing, startTime = Just now }
     
@@ -162,8 +162,8 @@ handleEvent event state now = case (status state, event) of
         isMistake = c /= targetChar
         newMistakes = if isMistake then mistakeCount state + 1 else mistakeCount state
         newTyped = currentTyped ++ [c]
-        -- Update offset for scrolling
-        newOffset = if length newTyped > (viewOffset state + (100 - 4)) 
+        -- Update offset for scrolling based on actual width
+        newOffset = if length newTyped > (viewOffset state + (w - 4)) 
                     then viewOffset state + 1 else viewOffset state
     in state { typedText = newTyped, mistakeCount = newMistakes, viewOffset = newOffset }
     
@@ -172,10 +172,10 @@ handleEvent event state now = case (status state, event) of
     
   _ -> state
 
-updateState :: UTCTime -> Maybe Tb2.TbEvent -> GameState -> GameState
-updateState now mEvent state =
+updateState :: Int -> UTCTime -> Maybe Tb2.TbEvent -> GameState -> GameState
+updateState w now mEvent state =
   let stateAfterEvent = case mEvent of
-        Just ev -> handleEvent ev state now
+        Just ev -> handleEvent w ev state now
         Nothing -> state
   in case status stateAfterEvent of
     Typing -> 
@@ -187,11 +187,11 @@ updateState now mEvent state =
 
 appLoop :: GameState -> Termbox2 ()
 appLoop state = do
+  (w, h) <- Tb2.size
   now <- liftIO getCurrentTime
   mEvent <- liftIO Tb2.tryPollEvent
   
-  let newState = updateState now mEvent state
-  (w, h) <- Tb2.size
+  let newState = updateState w now mEvent state
   
   Tb2.clear
   screenBorder 1 w h
