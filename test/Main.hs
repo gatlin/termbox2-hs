@@ -207,4 +207,7 @@ appLoop state = do
   appLoop newState
 
 main :: IO ()
-main = runTermbox2 $ bracket_ Tb2.init Tb2.shutdown (appLoop initialState)
+main = runTermbox2 $ do
+  Tb2.init
+  appLoop initialState
+  Tb2.shutdown
