@@ -149,14 +149,14 @@ renderGameScreen w h now state = do
 
 ---------------------------------------------------------------------------------------
 -- Game Logic
------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------
 
-handleEvent :: Int -> Tb2.TbEvent -> GameState -> UTCTime -> GameState
+handleEvent :: Int -> Tb2.Tb2Event -> GameState -> UTCTime -> GameState
 handleEvent w event state now = case (status state, event) of
-  (Waiting, Tb2.TbEventKey (Tb2.TbKeyChar c)) -> 
+  (Waiting, Tb2.Tb2EventKey (Tb2.Tb2KeyChar c)) -> 
     state { status = Typing, startTime = Just now }
     
-  (Typing, Tb2.TbEventKey (Tb2.TbKeyChar c)) ->
+  (Typing, Tb2.Tb2EventKey (Tb2.Tb2KeyChar c)) ->
     let currentTyped = typedText state
         targetChar = targetText state !! length currentTyped
         isMistake = c /= targetChar
@@ -167,12 +167,12 @@ handleEvent w event state now = case (status state, event) of
                     then viewOffset state + 1 else viewOffset state
     in state { typedText = newTyped, mistakeCount = newMistakes, viewOffset = newOffset }
     
-  (Finished, Tb2.TbEventKey _) -> 
+  (Finished, Tb2.Tb2EventKey _) -> 
     initialState
     
   _ -> state
 
-updateState :: Int -> UTCTime -> Maybe Tb2.TbEvent -> GameState -> GameState
+updateState :: Int -> UTCTime -> Maybe Tb2.Tb2Event -> GameState -> GameState
 updateState w now mEvent state =
   let stateAfterEvent = case mEvent of
         Just ev -> handleEvent w ev state now
@@ -187,9 +187,9 @@ updateState w now mEvent state =
 
 appLoop :: GameState -> Termbox2 ()
 appLoop state = do
-  (w, h) <- Tb2.size
+  (w, h) <- Tb2.getTermSize
   now <- liftIO getCurrentTime
-  mEvent <- liftIO Tb2.tryPollEvent
+  mEvent <- liftIO Tb2.pollEvent
   
   let newState = updateState w now mEvent state
   
@@ -199,7 +199,7 @@ appLoop state = do
     Waiting -> renderStartScreen w h
     Typing  -> renderGameScreen w h now newState
     Finished -> renderSummaryScreen w h newState
-  Tb2.sync
+  Tb2.flush
   
   liftIO $ threadDelay 10000 -- 10ms
   appLoop newState
