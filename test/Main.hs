@@ -153,10 +153,10 @@ renderGameScreen w h now state = do
 
 handleEvent :: Int -> Tb2.Tb2Event -> GameState -> UTCTime -> GameState
 handleEvent w event state now = case (status state, event) of
-  (Waiting, Tb2.Tb2EventKey (Tb2.Tb2KeyChar c)) -> 
+  (Waiting, Tb2.Tb2Event (Tb2.Tb2Key c)) -> 
     state { status = Typing, startTime = Just now }
     
-  (Typing, Tb2.Tb2EventKey (Tb2.Tb2KeyChar c)) ->
+  (Typing, Tb2.Tb2Event (Tb2.Tb2Key c)) ->
     let currentTyped = typedText state
         targetChar = targetText state !! length currentTyped
         isMistake = c /= targetChar
@@ -167,7 +167,7 @@ handleEvent w event state now = case (status state, event) of
                     then viewOffset state + 1 else viewOffset state
     in state { typedText = newTyped, mistakeCount = newMistakes, viewOffset = newOffset }
     
-  (Finished, Tb2.Tb2EventKey _) -> 
+  (Finished, Tb2.Tb2Event _) -> 
     initialState
     
   _ -> state
@@ -187,7 +187,7 @@ updateState w now mEvent state =
 
 appLoop :: GameState -> Termbox2 ()
 appLoop state = do
-  (w, h) <- Tb2.getTermSize
+  (w, h) <- Tb2.termSize
   now <- liftIO getCurrentTime
   mEvent <- liftIO Tb2.pollEvent
   
@@ -199,7 +199,7 @@ appLoop state = do
     Waiting -> renderStartScreen w h
     Typing  -> renderGameScreen w h now newState
     Finished -> renderSummaryScreen w h newState
-  Tb2.flush
+  Tb2.sync
   
   liftIO $ threadDelay 10000 -- 10ms
   appLoop newState
