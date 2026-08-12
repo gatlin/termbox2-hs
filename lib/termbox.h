@@ -2692,6 +2692,9 @@ static int extract_esc_mouse(struct tb_event *event) {
                     if ((b & 32) != 0) {
                         event->mod |= TB_MOD_MOTION;
                     }
+                    if ((b & 16) != 0) {
+                        event->mod |= TB_MOD_CTRL;
+                    }
 
                     // the coord is 1,1 for upper left
                     event->x = ((uint8_t)in->buf[4]) - 0x21;
@@ -2786,9 +2789,12 @@ static int extract_esc_mouse(struct tb_event *event) {
                     if ((n1 & 32) != 0) {
                         event->mod |= TB_MOD_MOTION;
                     }
+                    if ((n1 & 16) != 0) {
+                        event->mod |= TB_MOD_CTRL;
+                    }
 
-                    event->x = ((uint8_t)n2) - 1;
-                    event->y = ((uint8_t)n3) - 1;
+                    event->x = n2 - 1;
+                    event->y = n3 - 1;
 
                     ret = TB_OK;
                 }
