@@ -656,13 +656,31 @@ _waitEvent fn = do
   ret <- (liftIO $! fn ptr) <&> Tb2Err
   if errOk == ret
     then (liftIO $! peek ptr) <&> Just
-    else if errPoll == ret
-      then do
-        lastErr <- (liftIO ffi_tb_last_errno) <&> Errno
-        if lastErr == eINTR
-          then return Nothing
-          else error $! show ret
-      else error $! show ret
+    else
+      if errNoEvent == ret
+        then -- \| tb_peek_event's documented, non-error "timeout elapsed,
+        -- no event" result - only tb_peek_event (a timeout poll) can
+        -- return this; tb_poll_event blocks indefinitely and never will.
+          return Nothing
+        else
+          if errNeedMore == ret
+            then -- \| A partial escape sequence (e.g. two bytes of
+            -- ESC ESC...) is buffered and more bytes are needed to
+            -- disambiguate it from a longer known sequence.
+            -- tb_poll_event's infinite timeout retries this internally in
+            -- a loop and so never surfaces it; with any finite timeout
+            -- (tb_peek_event) that internal retry only runs once, so an
+            -- unresolved sequence is handed back to us instead - exactly
+            -- the same "call me again" contract as errNoEvent.
+              return Nothing
+            else
+              if errPoll == ret
+                then do
+                  lastErr <- (liftIO ffi_tb_last_errno) <&> Errno
+                  if lastErr == eINTR
+                    then return Nothing
+                    else error $! show ret
+                else error $! show ret
 {-# INLINE _waitEvent #-}
 
 -- | Blocks until an exception is thrown or an event is observed.
