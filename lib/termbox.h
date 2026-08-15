@@ -43,14 +43,24 @@ SOFTWARE.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <wchar.h>
+
+/* Windows console I/O works via the Win32 Console API (ReadConsoleInput,
+ * SetConsoleMode, GetConsoleScreenBufferInfo), not termios/ioctl/select,
+ * none of which exist there - the whole input/raw-mode/resize story is
+ * a separate implementation below, not a patch to the POSIX one. */
+#if defined(_WIN32)
+#include <io.h>
+#include <windows.h>
+#else
 #include <sys/ioctl.h>
 #include <sys/select.h>
-#include <sys/stat.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
-#include <wchar.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -661,7 +671,13 @@ struct tb_global_t {
     struct bytebuf_t out;
     struct cellbuf_t back;
     struct cellbuf_t front;
+#if defined(_WIN32)
+    DWORD orig_console_mode;
+    HANDLE win_hin;
+    HANDLE win_hout;
+#else
     struct termios orig_tios;
+#endif
     int has_orig_tios;
     int last_errno;
     int initialized;
@@ -1925,6 +1941,52 @@ static int tb_reset(void) {
     return TB_OK;
 }
 
+#if defined(_WIN32)
+static int init_term_attrs(void) {
+    if (global.ttyfd < 0) {
+        return TB_OK;
+    }
+
+    global.win_hin = (HANDLE)_get_osfhandle(global.rfd);
+    global.win_hout = (HANDLE)_get_osfhandle(global.wfd);
+    if (global.win_hin == INVALID_HANDLE_VALUE ||
+        global.win_hout == INVALID_HANDLE_VALUE) {
+        return TB_ERR_TCGETATTR;
+    }
+
+    if (!GetConsoleMode(global.win_hin, &global.orig_console_mode)) {
+        global.last_errno = (int)GetLastError();
+        return TB_ERR_TCGETATTR;
+    }
+    global.has_orig_tios = 1;
+
+    // No line buffering/echo/Ctrl+C-as-SIGINT (ENABLE_PROCESSED_INPUT), the
+    // console-mode equivalent of cfmakeraw(); ENABLE_WINDOW_INPUT/
+    // ENABLE_MOUSE_INPUT is how resize and mouse events reach
+    // ReadConsoleInput at all - both are opt-in.
+    DWORD mode = global.orig_console_mode;
+    mode &= ~(DWORD)(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT |
+        ENABLE_PROCESSED_INPUT);
+    mode |= ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
+    if (!SetConsoleMode(global.win_hin, mode)) {
+        global.last_errno = (int)GetLastError();
+        return TB_ERR_TCSETATTR;
+    }
+
+    // ENABLE_VIRTUAL_TERMINAL_PROCESSING is what lets a modern Windows
+    // console interpret the same ANSI/SGR escape codes termbox2 already
+    // generates for every other platform - the render path itself needs
+    // no Windows-specific changes at all once this is set.
+    DWORD outMode = 0;
+    if (GetConsoleMode(global.win_hout, &outMode)) {
+        SetConsoleMode(global.win_hout,
+            outMode | ENABLE_PROCESSED_OUTPUT |
+                ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+
+    return TB_OK;
+}
+#else
 static int init_term_attrs(void) {
     if (global.ttyfd < 0) {
         return TB_OK;
@@ -1950,6 +2012,7 @@ static int init_term_attrs(void) {
 
     return TB_OK;
 }
+#endif
 
 int tb_printf_inner(int x, int y, uintattr_t fg, uintattr_t bg, size_t *out_w,
     const char *fmt, va_list vl) {
@@ -2077,6 +2140,15 @@ static int cap_trie_deinit(struct cap_trie_t *node) {
     return TB_OK;
 }
 
+#if defined(_WIN32)
+// Resize has no SIGWINCH/pipe equivalent on Windows and needs none: with
+// ENABLE_WINDOW_INPUT set (see init_term_attrs), a resize simply arrives
+// as its own WINDOW_BUFFER_SIZE_EVENT record from ReadConsoleInput,
+// handled directly in wait_event's Windows branch.
+static int init_resize_handler(void) {
+    return TB_OK;
+}
+#else
 static int init_resize_handler(void) {
     if (pipe(global.resize_pipefd) != 0) {
         global.last_errno = errno;
@@ -2093,6 +2165,7 @@ static int init_resize_handler(void) {
 
     return TB_OK;
 }
+#endif
 
 static int send_init_escape_codes(void) {
     int rv;
@@ -2120,6 +2193,22 @@ static int send_clear(void) {
     return TB_OK;
 }
 
+#if defined(_WIN32)
+static int update_term_size(void) {
+    if (global.ttyfd < 0) {
+        return TB_OK;
+    }
+
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(global.win_hout, &csbi)) {
+        global.last_errno = (int)GetLastError();
+        return TB_ERR_RESIZE_IOCTL;
+    }
+    global.width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    global.height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    return TB_OK;
+}
+#else
 static int update_term_size(void) {
     int rv, ioctl_errno;
 
@@ -2144,7 +2233,14 @@ static int update_term_size(void) {
     global.last_errno = ioctl_errno;
     return TB_ERR_RESIZE_IOCTL;
 }
+#endif
 
+#if !defined(_WIN32)
+// A POSIX-only fallback (CSI cursor-position probe over select()/read())
+// for terminals where TIOCGWINSZ isn't available - Windows always has
+// GetConsoleScreenBufferInfo, so update_term_size() there never calls
+// this at all, and it stays unreachable dead code rather than being
+// ported (it also uses fd_set/select, not just write()/read()).
 static int update_term_size_via_esc(void) {
 #ifndef TB_RESIZE_FALLBACK_MS
 #define TB_RESIZE_FALLBACK_MS 1000
@@ -2189,6 +2285,7 @@ static int update_term_size_via_esc(void) {
     global.height = rh;
     return TB_OK;
 }
+#endif
 
 static int init_cellbuf(void) {
     int rv;
@@ -2210,20 +2307,28 @@ static int tb_deinit(void) {
         bytebuf_flush(&global.out, global.wfd);
     }
     if (global.ttyfd >= 0) {
+#if defined(_WIN32)
+        if (global.has_orig_tios) {
+            SetConsoleMode(global.win_hin, global.orig_console_mode);
+        }
+#else
         if (global.has_orig_tios) {
             tcsetattr(global.ttyfd, TCSAFLUSH, &global.orig_tios);
         }
+#endif
         if (global.ttyfd_open) {
             close(global.ttyfd);
             global.ttyfd_open = 0;
         }
     }
 
+#if !defined(_WIN32)
     sigaction(SIGWINCH, &(struct sigaction){.sa_handler = SIG_DFL}, NULL);
     if (global.resize_pipefd[0] >= 0)
         close(global.resize_pipefd[0]);
     if (global.resize_pipefd[1] >= 0)
         close(global.resize_pipefd[1]);
+#endif
 
     cellbuf_free(&global.back);
     cellbuf_free(&global.front);
@@ -2404,9 +2509,19 @@ static int load_builtin_caps(void) {
     int i, j;
     const char *term = getenv("TERM");
 
+#if defined(_WIN32)
+    // No terminfo files, and $TERM often isn't set at all in a plain
+    // PowerShell/cmd.exe session - fall back to "xterm" caps, matching
+    // ENABLE_VIRTUAL_TERMINAL_PROCESSING's own xterm-compatible ANSI/SGR
+    // support (see init_term_attrs).
+    if (!term) {
+        term = "xterm";
+    }
+#else
     if (!term) {
         return TB_ERR_NO_TERM;
     }
+#endif
 
     // Check for exact TERM match
     for (i = 0; builtin_terms[i].name != NULL; i++) {
@@ -2455,6 +2570,178 @@ static const char *get_terminfo_string(int16_t str_offsets_pos,
         const char *)(global.terminfo + (int)str_table_pos + (int)*str_offset);
 }
 
+#if defined(_WIN32)
+// Fills in a key event directly from a Windows key code/character, rather
+// than faking an ANSI escape sequence and routing it through
+// extract_event's byte-stream parser - avoids depending on terminfo/cap
+// strings (which are for OUTPUT, and may not even be loaded the same way
+// every session) for INPUT decoding too. Sets event->type to 0 as a
+// sentinel the caller checks for "not a key press worth reporting" (a
+// bare modifier, or a virtual key with no mapping and no character).
+static void win_key_event_to_tb(KEY_EVENT_RECORD *ker, struct tb_event *event) {
+    event->type = TB_EVENT_KEY;
+    event->mod = 0;
+    if (ker->dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) {
+        event->mod |= TB_MOD_ALT;
+    }
+    if (ker->dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+        event->mod |= TB_MOD_CTRL;
+    }
+    if (ker->dwControlKeyState & SHIFT_PRESSED) {
+        event->mod |= TB_MOD_SHIFT;
+    }
+
+    switch (ker->wVirtualKeyCode) {
+    case VK_UP: event->key = TB_KEY_ARROW_UP; return;
+    case VK_DOWN: event->key = TB_KEY_ARROW_DOWN; return;
+    case VK_LEFT: event->key = TB_KEY_ARROW_LEFT; return;
+    case VK_RIGHT: event->key = TB_KEY_ARROW_RIGHT; return;
+    case VK_HOME: event->key = TB_KEY_HOME; return;
+    case VK_END: event->key = TB_KEY_END; return;
+    case VK_PRIOR: event->key = TB_KEY_PGUP; return;
+    case VK_NEXT: event->key = TB_KEY_PGDN; return;
+    case VK_INSERT: event->key = TB_KEY_INSERT; return;
+    case VK_DELETE: event->key = TB_KEY_DELETE; return;
+    case VK_F1:
+    case VK_F2:
+    case VK_F3:
+    case VK_F4:
+    case VK_F5:
+    case VK_F6:
+    case VK_F7:
+    case VK_F8:
+    case VK_F9:
+    case VK_F10:
+    case VK_F11:
+    case VK_F12:
+        event->key =
+            (uint16_t)(TB_KEY_F1 + (ker->wVirtualKeyCode - VK_F1));
+        return;
+    default: break;
+    }
+
+    wchar_t wc = ker->uChar.UnicodeChar;
+    if (wc == 0) {
+        // A bare modifier (Shift/Ctrl/Alt alone) or an unmapped virtual
+        // key with no character behind it - nothing to report.
+        event->type = 0;
+        return;
+    }
+    if (wc == L'\r') {
+        event->key = TB_KEY_ENTER;
+        return;
+    }
+    if (wc == 27) {
+        event->key = TB_KEY_ESC;
+        return;
+    }
+    if (wc == 8 || wc == 127) {
+        event->key = TB_KEY_BACKSPACE2;
+        return;
+    }
+    if (wc == L'\t') {
+        event->key = TB_KEY_TAB;
+        return;
+    }
+    if (wc < 32) {
+        // Ctrl+letter etc - Windows already reports these as a control
+        // character, same meaning TB_MOD_CTRL + the plain key has.
+        event->key = (uint16_t)wc;
+        event->mod |= TB_MOD_CTRL;
+        return;
+    }
+
+    event->key = 0;
+    event->ch = (uint32_t)wc;
+}
+
+// Returns TB_OK if this mouse record is one termbox2 reports (a button
+// press, release, or wheel tick) or TB_ERR for one it doesn't (a bare
+// move, which this port doesn't support drag/hover for).
+static int win_mouse_event_to_tb(MOUSE_EVENT_RECORD *mer,
+    struct tb_event *event) {
+    event->type = TB_EVENT_MOUSE;
+    event->x = mer->dwMousePosition.X;
+    event->y = mer->dwMousePosition.Y;
+    event->mod = 0;
+
+    if (mer->dwEventFlags & MOUSE_WHEELED) {
+        short delta = (short)HIWORD(mer->dwButtonState);
+        event->key =
+            delta > 0 ? TB_KEY_MOUSE_WHEEL_UP : TB_KEY_MOUSE_WHEEL_DOWN;
+        return TB_OK;
+    }
+    if (mer->dwEventFlags & MOUSE_MOVED) {
+        return TB_ERR;
+    }
+    if (mer->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED) {
+        event->key = TB_KEY_MOUSE_LEFT;
+    } else if (mer->dwButtonState & RIGHTMOST_BUTTON_PRESSED) {
+        event->key = TB_KEY_MOUSE_RIGHT;
+    } else if (mer->dwButtonState & FROM_LEFT_2ND_BUTTON_PRESSED) {
+        event->key = TB_KEY_MOUSE_MIDDLE;
+    } else {
+        event->key = TB_KEY_MOUSE_RELEASE;
+    }
+    return TB_OK;
+}
+
+static int wait_event(struct tb_event *event, int timeout) {
+    int rv;
+
+    memset(event, 0, sizeof(*event));
+
+    for (;;) {
+        DWORD waitMs = (timeout < 0) ? INFINITE : (DWORD)timeout;
+        DWORD waitResult = WaitForSingleObject(global.win_hin, waitMs);
+        if (waitResult == WAIT_TIMEOUT) {
+            return TB_ERR_NO_EVENT;
+        }
+        if (waitResult != WAIT_OBJECT_0) {
+            global.last_errno = (int)GetLastError();
+            return TB_ERR_POLL;
+        }
+
+        INPUT_RECORD rec;
+        DWORD nread = 0;
+        if (!ReadConsoleInputW(global.win_hin, &rec, 1, &nread)) {
+            global.last_errno = (int)GetLastError();
+            return TB_ERR_READ;
+        }
+        if (nread == 0) {
+            continue;
+        }
+
+        memset(event, 0, sizeof(*event));
+        switch (rec.EventType) {
+        case KEY_EVENT:
+            if (!rec.Event.KeyEvent.bKeyDown) {
+                continue;
+            }
+            win_key_event_to_tb(&rec.Event.KeyEvent, event);
+            if (event->type == 0) {
+                continue;
+            }
+            return TB_OK;
+        case MOUSE_EVENT:
+            if (win_mouse_event_to_tb(&rec.Event.MouseEvent, event) !=
+                TB_OK) {
+                continue;
+            }
+            return TB_OK;
+        case WINDOW_BUFFER_SIZE_EVENT:
+            if_err_return(rv, update_term_size());
+            if_err_return(rv, resize_cellbufs());
+            event->type = TB_EVENT_RESIZE;
+            event->w = global.width;
+            event->h = global.height;
+            return TB_OK;
+        default:
+            continue;
+        }
+    }
+}
+#else
 static int wait_event(struct tb_event *event, int timeout) {
     int rv;
     char buf[TB_OPT_READ_BUF];
@@ -2518,6 +2805,7 @@ static int wait_event(struct tb_event *event, int timeout) {
 
     return rv;
 }
+#endif
 
 static int extract_event(struct tb_event *event) {
     int rv;
@@ -2826,11 +3114,13 @@ static int resize_cellbufs(void) {
     return TB_OK;
 }
 
+#if !defined(_WIN32)
 static void handle_resize(int sig) {
     int errno_copy = errno;
     write(global.resize_pipefd[1], &sig, sizeof(sig));
     errno = errno_copy;
 }
+#endif
 
 static int send_attr(uintattr_t fg, uintattr_t bg) {
     int rv;
