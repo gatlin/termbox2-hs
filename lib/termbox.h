@@ -66,6 +66,46 @@ SOFTWARE.
 extern "C" {
 #endif
 
+#if defined(_WIN32)
+/* Neither of these POSIX functions exists in mingw-w64's C runtime (this
+ * isn't a missing-declaration problem like sys/ioctl.h - the symbols
+ * themselves are genuinely absent at link time). */
+
+/* A deliberately simple wcwidth(): 0 for control/combining/zero-width
+ * chars, 2 for the common East Asian wide ranges, 1 otherwise. Good
+ * enough for termbox2's own box-drawing glyphs and ordinary text; not a
+ * full Unicode East-Asian-width table. */
+static int win32_wcwidth(wchar_t wc) {
+    if (wc == 0) return 0;
+    if (wc < 32 || (wc >= 0x7f && wc < 0xa0)) return -1;
+    if ((wc >= 0x300 && wc <= 0x36f)   // combining diacriticals
+        || (wc >= 0x200b && wc <= 0x200f) // zero-width space/marks
+        || wc == 0xfeff)               // BOM / zero-width no-break space
+        return 0;
+    if ((wc >= 0x1100 && wc <= 0x115f)   // Hangul Jamo
+        || (wc >= 0x2e80 && wc <= 0xa4cf && wc != 0x303f) // CJK & Kana
+        || (wc >= 0xac00 && wc <= 0xd7a3) // Hangul Syllables
+        || (wc >= 0xf900 && wc <= 0xfaff) // CJK Compatibility Ideographs
+        || (wc >= 0xff00 && wc <= 0xff60) // Fullwidth Forms
+        || (wc >= 0xffe0 && wc <= 0xffe6))
+        return 2;
+    return 1;
+}
+#define wcwidth(wc) win32_wcwidth(wc)
+
+/* strerror() isn't thread-safe, but termbox2 only ever calls this from
+ * whichever single thread is driving its own event loop - good enough. */
+static void win32_strerror_r(int errnum, char *buf, size_t buflen) {
+    const char *msg = strerror(errnum);
+    if (!msg) msg = "Unknown error";
+    size_t n = strlen(msg);
+    if (n >= buflen) n = buflen - 1;
+    memcpy(buf, msg, n);
+    buf[n] = '\0';
+}
+#define strerror_r(errnum, buf, buflen) win32_strerror_r(errnum, buf, buflen)
+#endif
+
 // __ffi_start
 
 #define TB_VERSION_STR "2.1.0-dev"
