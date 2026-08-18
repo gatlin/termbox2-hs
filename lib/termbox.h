@@ -3248,15 +3248,30 @@ static int bytebuf_shift(struct bytebuf_t *b, size_t n) {
     return TB_OK;
 }
 
+/* Loops until every byte is written, rather than treating a signal
+ * interruption or a partial write as failure - both are ordinary,
+ * expected outcomes of writing a large buffer to a tty/pty, not error
+ * conditions. A concurrent SIGWINCH (a terminal resize arriving mid-
+ * render) reliably interrupts write() with EINTR on a big enough
+ * buffer - confirmed empirically, not theoretical: a real resize event
+ * during tb_present() reproducibly turned into an uncaught TB_ERR before
+ * this fix, crashing the whole program over what should have been an
+ * invisible, transparently-retried write. */
 static int bytebuf_flush(struct bytebuf_t *b, int fd) {
     if (b->len <= 0) {
         return TB_OK;
     }
-    ssize_t write_rv = write(fd, b->buf, b->len);
-    if (write_rv < 0 || (size_t)write_rv != b->len) {
-        // Note, errno will be 0 on partial write
-        global.last_errno = errno;
-        return TB_ERR;
+    size_t written = 0;
+    while (written < b->len) {
+        ssize_t write_rv = write(fd, b->buf + written, b->len - written);
+        if (write_rv < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            global.last_errno = errno;
+            return TB_ERR;
+        }
+        written += (size_t)write_rv;
     }
     b->len = 0;
     return TB_OK;
