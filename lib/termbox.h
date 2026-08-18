@@ -1470,7 +1470,20 @@ static int bytebuf_reserve(struct bytebuf_t *b, size_t sz);
 static int bytebuf_free(struct bytebuf_t *b);
 
 int tb_init(void) {
+#if defined(_WIN32)
+    /* No /dev/tty on Windows - the console is already reachable via the
+     * process's own stdin/stdout, unlike POSIX where a background
+     * process's stdin/stdout might be redirected away from the
+     * controlling terminal entirely. Confirmed by actually calling
+     * plain tb_init() on Windows (well, under Wine) and watching it
+     * fail with TB_ERR_INIT_OPEN otherwise - trellis itself never hits
+     * this (Trellis.UI.mount already calls initRwFd directly on
+     * Windows), but anything else linking this library and calling the
+     * ordinary tb_init() entry point would. */
+    return tb_init_rwfd(0, 1);
+#else
     return tb_init_file("/dev/tty");
+#endif
 }
 
 int tb_init_file(const char *path) {
