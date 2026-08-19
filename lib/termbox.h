@@ -1507,7 +1507,19 @@ int tb_init_rwfd(int rfd, int wfd) {
     int rv;
 
     tb_reset();
+#if defined(_WIN32)
+    // Unlike tb_init_fd's single shared fd (rfd == wfd there always),
+    // Windows' stdin/stdout are legitimately distinct descriptors (0
+    // and 1) that can both still be attached to the very same console
+    // session - requiring rfd == wfd here left ttyfd permanently -1 on
+    // Windows, silently skipping console-mode setup (init_term_attrs)
+    // and size detection (update_term_size) on every Windows init.
+    // ttyfd's actual value is never used on this platform beyond >= 0
+    // comparisons (see tb_deinit), so which fd it holds doesn't matter.
+    global.ttyfd = isatty(rfd) && isatty(wfd) ? wfd : -1;
+#else
     global.ttyfd = rfd == wfd && isatty(rfd) ? rfd : -1;
+#endif
     global.rfd = rfd;
     global.wfd = wfd;
 
@@ -2254,6 +2266,25 @@ static int update_term_size(void) {
 
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     if (!GetConsoleScreenBufferInfo(global.win_hout, &csbi)) {
+        // No real console object to query - happens under Wine when
+        // stdout is inherited from a Linux pty rather than backed by
+        // Wine's own console server (confirmed interactively: ANSI
+        // output still reaches the terminal fine in that case, only
+        // this size query fails). COLUMNS/LINES aren't set by cmd.exe
+        // or PowerShell, so this fallback is inert on real Windows -
+        // it only helps environments (like that Wine setup) where
+        // something in the chain has exported them.
+        const char *cols = getenv("COLUMNS");
+        const char *lines = getenv("LINES");
+        if (cols && lines) {
+            int w = atoi(cols);
+            int h = atoi(lines);
+            if (w > 0 && h > 0) {
+                global.width = w;
+                global.height = h;
+                return TB_OK;
+            }
+        }
         global.last_errno = (int)GetLastError();
         return TB_ERR_RESIZE_IOCTL;
     }
