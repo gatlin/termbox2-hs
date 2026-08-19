@@ -2049,6 +2049,14 @@ static int init_term_attrs(void) {
                 ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
 
+    // The console defaults to the system codepage, not UTF-8 - every
+    // multi-byte glyph termbox2 writes (box-drawing chars included)
+    // otherwise gets decoded byte-by-byte against the wrong codepage,
+    // rendering as mojibake. Confirmed interactively under Wine: this
+    // is what was producing garbled grid lines before this fix.
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
     return TB_OK;
 }
 #else
